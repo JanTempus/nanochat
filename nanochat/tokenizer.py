@@ -154,6 +154,100 @@ class HuggingFaceTokenizer:
         self.tokenizer.save(tokenizer_path)
         print(f"Saved tokenizer to {tokenizer_path}")
 
+    def render_conversation(self, conversation, max_tokens=2048):
+        """
+        Tokenize a single Chat conversation (which we call a "doc" or "document" here).
+        Returns:
+        - ids: list[int] is a list of token ids of this rendered conversation
+        - mask: list[int] of same length, mask = 1 for tokens that the Assistant is expected to train on.
+        """
+        ids, mask = [], []
+        def add_tokens(token_ids, mask_val):
+            if isinstance(token_ids, int):
+                token_ids = [token_ids]
+            ids.extend(token_ids)
+            mask.extend([mask_val] * len(token_ids))
+
+        if conversation["messages"][0]["role"] == "system":
+            conversation = copy.deepcopy(conversation)
+            messages = conversation["messages"]
+            assert messages[1]["role"] == "user", "System message must be followed by a user message"
+            messages[1]["content"] = messages[0]["content"] + "\n\n" + messages[1]["content"]
+            messages = messages[1:]
+        else:
+            messages = conversation["messages"]
+        assert len(messages) >= 1, f"Conversation has less than 1 message: {messages}"
+
+        bos = self.get_bos_token_id()
+        user_start, user_end = self.encode_special("<|user_start|>"), self.encode_special("<|user_end|>")
+        assistant_start, assistant_end = self.encode_special("<|assistant_start|>"), self.encode_special("<|assistant_end|>")
+        python_start, python_end = self.encode_special("<|python_start|>"), self.encode_special("<|python_end|>")
+        output_start, output_end = self.encode_special("<|output_start|>"), self.encode_special("<|output_end|>")
+
+        add_tokens(bos, 0)
+        for i, message in enumerate(messages):
+            must_be_from = "user" if i % 2 == 0 else "assistant"
+            assert message["role"] == must_be_from, f"Message {i} is from {message['role']} but should be from {must_be_from}"
+            content = message["content"]
+            if message["role"] == "user":
+                assert isinstance(content, str), "User messages are simply expected to be strings"
+                add_tokens(user_start, 0)
+                add_tokens(self.encode(content), 0)
+                add_tokens(user_end, 0)
+            elif message["role"] == "assistant":
+                add_tokens(assistant_start, 0)
+                if isinstance(content, str):
+                    add_tokens(self.encode(content), 1)
+                elif isinstance(content, list):
+                    for part in content:
+                        value_ids = self.encode(part["text"])
+                        if part["type"] == "text":
+                            add_tokens(value_ids, 1)
+                        elif part["type"] == "python":
+                            add_tokens(python_start, 1)
+                            add_tokens(value_ids, 1)
+                            add_tokens(python_end, 1)
+                        elif part["type"] == "python_output":
+                            add_tokens(output_start, 0)
+                            add_tokens(value_ids, 0)
+                            add_tokens(output_end, 0)
+                        else:
+                            raise ValueError(f"Unknown part type: {part['type']}")
+                else:
+                    raise ValueError(f"Unknown content type: {type(content)}")
+                add_tokens(assistant_end, 1)
+
+        ids = ids[:max_tokens]
+        mask = mask[:max_tokens]
+        return ids, mask
+
+    def visualize_tokenization(self, ids, mask, with_token_id=False):
+        """Small helper function useful in debugging: visualize the tokenization of render_conversation"""
+        RED = '\033[91m'
+        GREEN = '\033[92m'
+        RESET = '\033[0m'
+        GRAY = '\033[90m'
+        tokens = []
+        for token_id, mask_val in zip(ids, mask):
+            token_str = self.decode([token_id])
+            color = GREEN if mask_val == 1 else RED
+            tokens.append(f"{color}{token_str}{RESET}")
+            if with_token_id:
+                tokens.append(f"{GRAY}({token_id}){RESET}")
+        return '|'.join(tokens)
+
+    def render_for_completion(self, conversation):
+        """
+        Used during Reinforcement Learning. Renders the conversation priming the Assistant for a completion.
+        """
+        conversation = copy.deepcopy(conversation)
+        messages = conversation["messages"]
+        assert messages[-1]["role"] == "assistant", "Last message must be from the Assistant"
+        messages.pop()
+        ids, mask = self.render_conversation(conversation)
+        ids.append(self.encode_special("<|assistant_start|>"))
+        return ids
+
 # -----------------------------------------------------------------------------
 # Tokenizer based on rustbpe + tiktoken combo
 import pickle
@@ -356,7 +450,7 @@ class RustBPETokenizer:
         RESET = '\033[0m'
         GRAY = '\033[90m'
         tokens = []
-        for i, (token_id, mask_val) in enumerate(zip(ids, mask)):
+        for token_id, mask_val in zip(ids, mask):
             token_str = self.decode([token_id])
             color = GREEN if mask_val == 1 else RED
             tokens.append(f"{color}{token_str}{RESET}")
@@ -391,8 +485,8 @@ def get_tokenizer():
     from nanochat.common import get_base_dir
     base_dir = get_base_dir()
     tokenizer_dir = os.path.join(base_dir, "tokenizer")
-    # return HuggingFaceTokenizer.from_directory(tokenizer_dir)
-    return RustBPETokenizer.from_directory(tokenizer_dir)
+    return HuggingFaceTokenizer.from_directory(tokenizer_dir)
+    # return RustBPETokenizer.from_directory(tokenizer_dir)
 
 def get_token_bytes(device="cpu"):
     import torch
