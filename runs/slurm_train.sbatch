@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=4          # 4 tasks per node (one per GPU — nodes always have exactly 4 GPUs)
 #SBATCH --gpus-per-node=4            # 4 GPUs per node (fixed: cannot request fewer)
 #SBATCH --cpus-per-task=8            # CPUs per task (32 / 4 = 8 per GPU)
-#SBATCH --time=11:30:00              # Maximum runtime
+#SBATCH --time=00:15:00              # Maximum runtime
 #SBATCH --partition=normal
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
