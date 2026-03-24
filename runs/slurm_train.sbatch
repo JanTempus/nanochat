@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=nanochat-train
+#SBATCH --account=a139
 #SBATCH --nodes=4                    # Number of nodes
 #SBATCH --ntasks-per-node=4          # 4 tasks per node (one per GPU — nodes always have exactly 4 GPUs)
 #SBATCH --gpus-per-node=4            # 4 GPUs per node (fixed: cannot request fewer)
