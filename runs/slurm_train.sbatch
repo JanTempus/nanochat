@@ -25,8 +25,10 @@
 #   DEVICE_BATCH_SIZE - per-GPU batch size (default 16)
 #   TARGET_PDR        - target param:data ratio, Chinchilla-style (default 8)
 #   WANDB_RUN         - wandb run name ('dummy' disables logging)
-#   NANOCHAT_BASE_DIR - data/cache/checkpoint directory
-#   PYTHON_PATH       - path to Python executable
+#   NANOCHAT_BASE_DIR   - data/cache/checkpoint directory
+#   NANOCHAT_DATA_DIR   - override dataset parquet directory (default: $NANOCHAT_BASE_DIR/base_data_climbmix)
+#   NANOCHAT_TOKENIZER_DIR - override tokenizer directory (default: $NANOCHAT_BASE_DIR/tokenizer)
+#   PYTHON_PATH         - path to Python executable
 # ============================================================================
 
 # ── Job info ─────────────────────────────────────────────────────────────────
@@ -57,6 +59,10 @@ WANDB_RUN=${WANDB_RUN:-"dummy"}
 NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/nanochat"}
 export NANOCHAT_BASE_DIR
 mkdir -p "$NANOCHAT_BASE_DIR"
+
+# Optional: override tokenizer and data directories independently
+[[ -n "${NANOCHAT_TOKENIZER_DIR:-}" ]] && export NANOCHAT_TOKENIZER_DIR
+[[ -n "${NANOCHAT_DATA_DIR:-}" ]] && export NANOCHAT_DATA_DIR
 
 # ── Python path ───────────────────────────────────────────────────────────────
 PYTHON_PATH=${PYTHON_PATH:-"/iopsstor/scratch/cscs/jtempus/venvs/nanochat/bin/python"}
