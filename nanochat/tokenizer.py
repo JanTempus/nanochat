@@ -128,7 +128,7 @@ class HuggingFaceTokenizer:
         bos = self.encode_special("<|bos|>")
         # 2) if that fails, attempt to find a <|endoftext|> token (e.g. GPT-2 models)
         if bos is None:
-            bos = self.encode_special("<|endoftext|>")
+            bos = self.encode_special("[EOS]")
         # 3) if these fail, it's better to crash than to silently return None
         assert bos is not None, "Failed to find BOS token in tokenizer"
         return bos
