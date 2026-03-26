@@ -63,7 +63,7 @@ NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus
 export NANOCHAT_TOKENIZER_DIR
 
 # ── Python path ───────────────────────────────────────────────────────────────
-PYTHON_PATH=${PYTHON_PATH:-"/iopsstor/scratch/cscs/jtempus/nanochat/.venv/bin/python3"}
+PYTHON_PATH=${PYTHON_PATH:-"/iopsstor/scratch/cscs/jtempus/nanochat/.venv/bin/python"}
 echo "Using Python: $PYTHON_PATH"
 
 # ── Derived: total GPUs ───────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ fi
 # nanochat/common.py:get_dist_info() reads RANK, LOCAL_RANK, WORLD_SIZE
 # and dist.init_process_group uses MASTER_ADDR + MASTER_PORT for rendezvous.
 echo "Starting distributed training..."
-srun bash -c "
+srun --environment=nanochat bash -c "
     echo '[Rank \$SLURM_PROCID / LocalRank \$SLURM_LOCALID] Starting...' && \
     cd $SLURM_SUBMIT_DIR || { echo 'ERROR: cd to $SLURM_SUBMIT_DIR failed'; exit 1; } && \
     WANDB_API_KEY=$WANDB_API_KEY \
