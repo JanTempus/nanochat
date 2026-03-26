@@ -51,7 +51,7 @@ export MASTER_PORT=29500
 echo "Master: $MASTER_ADDR:$MASTER_PORT"
 
 # ── Experiment identity (override via --export) ───────────────────────────────
-DEPTH=${DEPTH:-24}
+DEPTH=${DEPTH:-12}
 DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-16}
 TARGET_PDR=${TARGET_PDR:-8}          # param:data ratio (8 = speedrun setting)
 WANDB_RUN=${WANDB_RUN:-"dummy"}
