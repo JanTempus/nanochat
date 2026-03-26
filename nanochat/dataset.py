@@ -20,9 +20,9 @@ from nanochat.common import get_base_dir
 # The specifics of the current pretraining dataset
 
 # The URL on the internet where the data is hosted and downloaded from on demand
-BASE_URL = "https://huggingface.co/datasets/pietrolesci/finewebedu-20B/resolve/main"
-MAX_SHARD = 21 # the last datashard is shard_06542.parquet
-index_to_filename = lambda index: f"shard_{index:05d}.parquet" # format of the filenames
+BASE_URL = "https://huggingface.co/datasets/pietrolesci/finewebedu-20B/resolve/main/data"
+MAX_SHARD = 20 # 21 chunks total, 0-indexed (chunk-000 through chunk-020)
+index_to_filename = lambda index: f"chunk-{index:03d}-of-021.parquet"
 base_dir = get_base_dir()
 DATA_DIR = os.path.join(base_dir, "finewebedu_pietro")
 
