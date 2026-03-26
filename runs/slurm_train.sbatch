@@ -100,7 +100,7 @@ srun --environment=nanochat bash -c "
     WANDB_API_KEY=$WANDB_API_KEY \
     RANK=\$SLURM_PROCID \
     LOCAL_RANK=\$SLURM_LOCALID \
-    $PYTHON_PATH -m scripts.base_train -- \
+    $PYTHON_PATH -m scripts.base_train \
         --depth=$DEPTH \
         --device-batch-size=$DEVICE_BATCH_SIZE \
         --target-param-data-ratio=$TARGET_PDR \
