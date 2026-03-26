@@ -63,7 +63,7 @@ NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus
 export NANOCHAT_TOKENIZER_DIR
 
 # ── Python path ───────────────────────────────────────────────────────────────
-PYTHON_PATH=${PYTHON_PATH:-"/iopsstor/scratch/cscs/jtempus/nanochat/.venv/bin/python"}
+PYTHON_PATH=${PYTHON_PATH:-"/iopsstor/scratch/cscs/jtempus/nanochat/.venv/bin/python3"}
 echo "Using Python: $PYTHON_PATH"
 
 # ── Derived: total GPUs ───────────────────────────────────────────────────────
