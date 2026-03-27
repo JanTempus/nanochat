@@ -54,7 +54,8 @@ echo "Master: $MASTER_ADDR:$MASTER_PORT"
 DEPTH=${DEPTH:-12}
 DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-16}
 TARGET_PDR=${TARGET_PDR:-8}          # param:data ratio (8 = speedrun setting)
-WANDB_RUN=${WANDB_RUN:-"dummy"}
+WANDB_RUN=${WANDB_RUN:-"nanochat"}
+WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
 NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/nanochat"}
 export NANOCHAT_BASE_DIR
 mkdir -p "$NANOCHAT_BASE_DIR"
@@ -98,6 +99,7 @@ srun --environment=nanochat bash -c "
     echo '[Rank \$SLURM_PROCID / LocalRank \$SLURM_LOCALID] Starting...' && \
     cd $SLURM_SUBMIT_DIR || { echo 'ERROR: cd to $SLURM_SUBMIT_DIR failed'; exit 1; } && \
     WANDB_API_KEY=$WANDB_API_KEY \
+    WANDB_ENTITY=$WANDB_ENTITY \
     NANOCHAT_BASE_DIR=$NANOCHAT_BASE_DIR \
     NANOCHAT_TOKENIZER_DIR=$NANOCHAT_TOKENIZER_DIR \
     RANK=\$SLURM_PROCID \
