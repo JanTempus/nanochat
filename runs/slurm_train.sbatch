@@ -95,9 +95,10 @@ fi
 # nanochat/common.py:get_dist_info() reads RANK, LOCAL_RANK, WORLD_SIZE
 # and dist.init_process_group uses MASTER_ADDR + MASTER_PORT for rendezvous.
 echo "Starting distributed training..."
-srun --environment=nanochat bash -c "
+srun --environment=flashnano bash -c "
     echo '[Rank \$SLURM_PROCID / LocalRank \$SLURM_LOCALID] Starting...' && \
     cd $SLURM_SUBMIT_DIR || { echo 'ERROR: cd to $SLURM_SUBMIT_DIR failed'; exit 1; } && \
+    export PYTHONPATH=/usr/local/lib/python3.12/dist-packages:\$PYTHONPATH && \
     WANDB_API_KEY=$WANDB_API_KEY \
     WANDB_ENTITY=$WANDB_ENTITY \
     NANOCHAT_BASE_DIR=$NANOCHAT_BASE_DIR \
