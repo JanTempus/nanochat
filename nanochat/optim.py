@@ -35,6 +35,8 @@ def adamw_step_fused(
     All in one compiled graph to eliminate Python overhead between ops.
     The 0-D CPU tensors avoid recompilation when hyperparameter values change.
     """
+    beta1_t = torch.tensor(beta1_t, dtype=grad.dtype, device=grad.device)
+    beta2_t = torch.tensor(beta2_t, dtype=grad.dtype, device=grad.device)
     # Weight decay (decoupled, applied before the update)
     p.mul_(1 - lr_t * wd_t)
     # Update running averages (lerp_ is cleaner and fuses well)
