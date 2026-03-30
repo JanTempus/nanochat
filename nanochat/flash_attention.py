@@ -35,6 +35,11 @@ def _load_flash_attention_3():
         from kernels import get_kernel
         return get_kernel('varunneal/flash-attention-3').flash_attn_interface
     except Exception:
+        pass
+    try:
+        from flash_attn_3 import flash_attn_interface
+        return flash_attn_interface
+    except Exception:
         return None
 
 
