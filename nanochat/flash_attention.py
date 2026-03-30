@@ -34,12 +34,13 @@ def _load_flash_attention_3():
         os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
         from kernels import get_kernel
         return get_kernel('varunneal/flash-attention-3').flash_attn_interface
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"FA3 kernels hub failed: {e}")
     try:
         from flash_attn_3 import flash_attn_interface
         return flash_attn_interface
-    except Exception:
+    except Exception as e:
+        print(f"FA3 direct import failed: {e}")
         return None
 
 
