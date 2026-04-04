@@ -39,7 +39,7 @@ DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-16}
 TARGET_PDR=${TARGET_PDR:-8}
 NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/nanochat"}
 export NANOCHAT_BASE_DIR
-mkdir -p "$NANOCHAT_BASE_DIR"
+
 
 NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/rounded_tokenizers/basic_finewebedu20B_n180000_seed42/vocab_8192/lp_8192_bias"}
 export NANOCHAT_TOKENIZER_DIR
@@ -77,6 +77,8 @@ srun --environment=flashnano bash -c "
     echo '[Rank \$SLURM_PROCID / LocalRank \$SLURM_LOCALID] Starting...' && \
     cd $SLURM_SUBMIT_DIR || { echo 'ERROR: cd to $SLURM_SUBMIT_DIR failed'; exit 1; } && \
     export PYTHONPATH=/usr/local/lib/python3.12/dist-packages:\$PYTHONPATH && \
+    export NCCL_DEBUG=INFO && \
+    export NCCL_DEBUG_SUBSYS=INIT,NET && \
     NANOCHAT_BASE_DIR=$NANOCHAT_BASE_DIR \
     NANOCHAT_TOKENIZER_DIR=$NANOCHAT_TOKENIZER_DIR \
     RANK=\$SLURM_PROCID \
