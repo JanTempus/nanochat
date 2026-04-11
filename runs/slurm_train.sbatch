@@ -59,7 +59,7 @@ WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
 NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/nanochat"}
 export NANOCHAT_BASE_DIR
 
-NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/rounded_tokenizers/basic_finewebedu20B_n180000_seed42/vocab_16384/lp_16384_bias"}
+NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/rounded_tokenizers/basic_finewebedu20B_n200000_seed42/vocab_16384/lp_16384_bias"}
 export NANOCHAT_TOKENIZER_DIR
 
 # ── Python path ───────────────────────────────────────────────────────────────
