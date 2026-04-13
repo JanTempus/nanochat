@@ -108,20 +108,29 @@ fi
 # workers and handles RANK/LOCAL_RANK/WORLD_SIZE + NCCL rendezvous.
 # This matches how speedrun.sh launches training (torch.distributed.run).
 echo "Starting distributed training..."
-export WANDB_API_KEY WANDB_ENTITY NANOCHAT_BASE_DIR NANOCHAT_TOKENIZER_DIR
 
-srun python -m torch.distributed.run \
-    --nproc_per_node=$GPUS_PER_NODE \
-    --nnodes=$SLURM_NNODES \
-    --node-rank=\$SLURM_NODEID \
-    --rdzv-backend=c10d \
-    --rdzv-endpoint=$MASTER_ADDR:$MASTER_PORT \
-    -m scripts.base_train -- \
-        --depth=$DEPTH \
-        --device-batch-size=$DEVICE_BATCH_SIZE \
-        --target-param-data-ratio=$TARGET_PDR \
-        --fp8 \
-        --run=$WANDB_RUN
+srun bash -c "
+    source $VENV_DIR/bin/activate && \
+    VENV_PKG=\$(python -c \"import site; print(site.getsitepackages()[0])\") && \
+    export PYTHONPATH=\$VENV_PKG:/usr/local/lib/python3.12/dist-packages:\$PYTHONPATH && \
+    export WANDB_API_KEY=$WANDB_API_KEY \
+           WANDB_ENTITY=$WANDB_ENTITY \
+           NANOCHAT_BASE_DIR=$NANOCHAT_BASE_DIR \
+           NANOCHAT_TOKENIZER_DIR=$NANOCHAT_TOKENIZER_DIR && \
+    cd $SLURM_SUBMIT_DIR && \
+    python -m torch.distributed.run \
+        --nproc_per_node=$GPUS_PER_NODE \
+        --nnodes=$SLURM_NNODES \
+        --node-rank=\$SLURM_NODEID \
+        --rdzv-backend=c10d \
+        --rdzv-endpoint=$MASTER_ADDR:$MASTER_PORT \
+        -m scripts.base_train -- \
+            --depth=$DEPTH \
+            --device-batch-size=$DEVICE_BATCH_SIZE \
+            --target-param-data-ratio=$TARGET_PDR \
+            --fp8 \
+            --run=$WANDB_RUN
+"
 
 echo "======================================================================"
 echo "Training completed!"
