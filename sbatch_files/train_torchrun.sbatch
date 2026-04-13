@@ -1,33 +1,34 @@
 #!/bin/bash
 #SBATCH --job-name=nanochat-train
 #SBATCH --account=a139
-#SBATCH --nodes=1                    # Number of nodes
-#SBATCH --ntasks-per-node=4          # 4 tasks per node (one per GPU — nodes always have exactly 4 GPUs)
+#SBATCH --nodes=1                    # Number of nodes (scale up as needed)
+#SBATCH --ntasks-per-node=1          # 1 task per node — torchrun spawns GPU workers
 #SBATCH --gpus-per-node=4            # 4 GPUs per node (fixed: cannot request fewer)
-#SBATCH --cpus-per-task=8            # CPUs per task (32 / 4 = 8 per GPU)
+#SBATCH --cpus-per-task=32           # All CPUs to the single task (torchrun distributes them)
 #SBATCH --time=00:15:00              # Maximum runtime
 #SBATCH --partition=normal
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 
 # ============================================================================
-# SLURM Multi-Node Distributed Training Script for nanochat
-# One srun task per GPU; RANK/LOCAL_RANK/WORLD_SIZE are passed via env vars
-# directly to the Python process (no torchrun needed — nanochat reads them
-# from os.environ in nanochat/common.py:get_dist_info()).
+# SLURM Multi-Node Distributed Training Script for nanochat (torchrun variant)
+#
+# Uses torchrun for process spawning and rendezvous, matching how speedrun.sh
+# launches training. srun launches one torchrun per node; torchrun spawns
+# --nproc_per_node workers and sets RANK/LOCAL_RANK/WORLD_SIZE automatically.
 #
 # Usage (from the repo root directory):
-#   sbatch runs/slurm_train.sbatch
-#   sbatch --export=ALL,DEPTH=24,WANDB_RUN=my_run runs/slurm_train.sbatch
+#   sbatch sbatch_files/train_torchrun.sbatch
+#   sbatch --export=ALL,DEPTH=24,WANDB_RUN=my_run sbatch_files/train_torchrun.sbatch
 #
 # Overridable environment variables:
-#   DEPTH             - transformer depth (default 24, as in speedrun)
+#   DEPTH             - transformer depth (default 12)
 #   DEVICE_BATCH_SIZE - per-GPU batch size (default 16)
-#   TARGET_PDR        - target param:data ratio, Chinchilla-style (default 8)
+#   TARGET_PDR        - target param:data ratio (default 12)
 #   WANDB_RUN         - wandb run name ('dummy' disables logging)
 #   NANOCHAT_BASE_DIR      - data/cache/checkpoint directory
-#   NANOCHAT_TOKENIZER_DIR - tokenizer directory (default: $NANOCHAT_BASE_DIR/tokenizer)
-#   PYTHON_PATH         - path to Python executable
+#   NANOCHAT_TOKENIZER_DIR - tokenizer directory
+#   PYTHON_PATH            - path to Python executable
 # ============================================================================
 
 # ── Job info ─────────────────────────────────────────────────────────────────
@@ -50,10 +51,10 @@ export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 export MASTER_PORT=29500
 echo "Master: $MASTER_ADDR:$MASTER_PORT"
 
-# ── Experiment identity (override via --export) ───────────────────────────────
+# ── Experiment identity (override via --export) ──────────────────────────────
 DEPTH=${DEPTH:-12}
 DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-16}
-TARGET_PDR=${TARGET_PDR:-12}          
+TARGET_PDR=${TARGET_PDR:-12}
 WANDB_RUN=${WANDB_RUN:-"nanochat_16384_12"}
 WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
 NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.cache/nanochat"}
@@ -62,15 +63,14 @@ export NANOCHAT_BASE_DIR
 NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/bpe_tokenizer/bpe_16384"}
 export NANOCHAT_TOKENIZER_DIR
 
-# ── Python path ───────────────────────────────────────────────────────────────
+# ── Python path ──────────────────────────────────────────────────────────────
 PYTHON_PATH=${PYTHON_PATH:-"/iopsstor/scratch/cscs/jtempus/nanochat/.venv/bin/python"}
 echo "Using Python: $PYTHON_PATH"
 
-# ── Derived: total GPUs ───────────────────────────────────────────────────────
-TOTAL_GPUS=$((SLURM_NNODES * SLURM_GPUS_ON_NODE))
-export WORLD_SIZE=$TOTAL_GPUS
+GPUS_PER_NODE=${SLURM_GPUS_ON_NODE:-4}
+TOTAL_GPUS=$((SLURM_NNODES * GPUS_PER_NODE))
 
-echo "Total GPUs:        $TOTAL_GPUS (${SLURM_NNODES} nodes x ${SLURM_GPUS_ON_NODE} GPUs/node)"
+echo "Total GPUs:        $TOTAL_GPUS (${SLURM_NNODES} nodes x ${GPUS_PER_NODE} GPUs/node)"
 echo "Depth:             $DEPTH"
 echo "Device batch size: $DEVICE_BATCH_SIZE"
 echo "Target PDR:        $TARGET_PDR"
@@ -79,7 +79,6 @@ echo "NANOCHAT_BASE_DIR: $NANOCHAT_BASE_DIR"
 echo "======================================================================"
 
 # ── Generate token_bytes.pt if not present ───────────────────────────────────
-# get_token_bytes() in Python reads from $NANOCHAT_TOKENIZER_DIR/token_bytes.pt
 TOKEN_BYTES_PATH="$NANOCHAT_TOKENIZER_DIR/token_bytes.pt"
 if [[ ! -f "$TOKEN_BYTES_PATH" ]]; then
     echo "token_bytes.pt not found at $TOKEN_BYTES_PATH, generating..."
@@ -90,7 +89,7 @@ else
     echo "token_bytes.pt already exists, skipping generation."
 fi
 
-# ── Load secrets ──────────────────────────────────────────────────────────────
+# ── Load secrets ─────────────────────────────────────────────────────────────
 ENV_FILE="${HOME}/.env.local"
 if [[ -f "$ENV_FILE" ]]; then
     set -a; source "$ENV_FILE"; set +a
@@ -99,31 +98,26 @@ else
     echo "WARNING: $ENV_FILE not found — WANDB_API_KEY may be unset"
 fi
 
-# ── Training ──────────────────────────────────────────────────────────────────
-# srun spawns one task per GPU (ntasks-per-node=4).
-# SLURM_PROCID  = global rank across all tasks  => RANK
-# SLURM_LOCALID = local rank within the node    => LOCAL_RANK
-# nanochat/common.py:get_dist_info() reads RANK, LOCAL_RANK, WORLD_SIZE
-# and dist.init_process_group uses MASTER_ADDR + MASTER_PORT for rendezvous.
+# ── Training ─────────────────────────────────────────────────────────────────
+# srun launches 1 task per node. torchrun on each node spawns nproc_per_node
+# workers and handles RANK/LOCAL_RANK/WORLD_SIZE + NCCL rendezvous.
+# This matches how speedrun.sh launches training (torch.distributed.run).
 echo "Starting distributed training..."
-srun --environment=nano_distributed bash -c "
-    echo '[Rank \$SLURM_PROCID / LocalRank \$SLURM_LOCALID] Starting...' && \
-    cd $SLURM_SUBMIT_DIR || { echo 'ERROR: cd to $SLURM_SUBMIT_DIR failed'; exit 1; } && \
-    export PYTHONPATH=/usr/local/lib/python3.12/dist-packages:\$PYTHONPATH && \
-    WANDB_API_KEY=$WANDB_API_KEY \
-    WANDB_ENTITY=$WANDB_ENTITY \
-    NANOCHAT_BASE_DIR=$NANOCHAT_BASE_DIR \
-    NANOCHAT_TOKENIZER_DIR=$NANOCHAT_TOKENIZER_DIR \
-    RANK=\$SLURM_PROCID \
-    LOCAL_RANK=\$SLURM_LOCALID \
-    WORLD_SIZE=$WORLD_SIZE \
-    $PYTHON_PATH -m scripts.base_train \
+export PYTHONPATH=/usr/local/lib/python3.12/dist-packages:$PYTHONPATH
+export WANDB_API_KEY WANDB_ENTITY NANOCHAT_BASE_DIR NANOCHAT_TOKENIZER_DIR
+
+srun $PYTHON_PATH -m torch.distributed.run \
+    --nproc_per_node=$GPUS_PER_NODE \
+    --nnodes=$SLURM_NNODES \
+    --node-rank=\$SLURM_NODEID \
+    --rdzv-backend=c10d \
+    --rdzv-endpoint=$MASTER_ADDR:$MASTER_PORT \
+    -m scripts.base_train -- \
         --depth=$DEPTH \
         --device-batch-size=$DEVICE_BATCH_SIZE \
         --target-param-data-ratio=$TARGET_PDR \
         --fp8 \
         --run=$WANDB_RUN
-"
 
 echo "======================================================================"
 echo "Training completed!"

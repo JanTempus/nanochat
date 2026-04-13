@@ -13,6 +13,7 @@
 # Default intermediate artifacts directory is in ~/.cache/nanochat
 export OMP_NUM_THREADS=1
 export NANOCHAT_BASE_DIR="/iopsstor/scratch/cscs/jtempus/.cache/nanochat"
+export NANOCHAT_TOKENIZER_DIR="$NANOCHAT_BASE_DIR/tokenizer"
 mkdir -p $NANOCHAT_BASE_DIR
 
 # -----------------------------------------------------------------------------

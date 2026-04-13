@@ -387,20 +387,26 @@ class RustBPETokenizer:
 # -----------------------------------------------------------------------------
 # nanochat-specific convenience functions
 
+def get_tokenizer_dir():
+    tokenizer_dir = os.environ.get("NANOCHAT_TOKENIZER_DIR")
+    if not tokenizer_dir:
+        raise RuntimeError(
+            "NANOCHAT_TOKENIZER_DIR is not set. "
+            "Set it to the directory containing your tokenizer files to avoid training with the wrong tokenizer."
+        )
+    if not os.path.isdir(tokenizer_dir):
+        raise RuntimeError(f"NANOCHAT_TOKENIZER_DIR={tokenizer_dir} does not exist or is not a directory")
+    return tokenizer_dir
+
 def get_tokenizer():
-    from nanochat.common import get_base_dir
-    base_dir = get_base_dir()
-    tokenizer_dir = os.path.join(base_dir, "tokenizer")
-    # return HuggingFaceTokenizer.from_directory(tokenizer_dir)
+    tokenizer_dir = get_tokenizer_dir()
     return RustBPETokenizer.from_directory(tokenizer_dir)
 
 def get_token_bytes(device="cpu"):
     import torch
-    from nanochat.common import get_base_dir
-    base_dir = get_base_dir()
-    tokenizer_dir = os.path.join(base_dir, "tokenizer")
+    tokenizer_dir = get_tokenizer_dir()
     token_bytes_path = os.path.join(tokenizer_dir, "token_bytes.pt")
-    assert os.path.exists(token_bytes_path), f"Token bytes not found at {token_bytes_path}? It gets written by tok_train.py"
+    assert os.path.exists(token_bytes_path), f"Token bytes not found at {token_bytes_path}? It gets written by tok_train.py or scripts/generate_token_bytes.py"
     with open(token_bytes_path, "rb") as f:
         token_bytes = torch.load(f, map_location=device)
     return token_bytes
