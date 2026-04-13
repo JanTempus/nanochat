@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1          # 1 task per node — torchrun spawns GPU workers
 #SBATCH --gpus-per-node=4            # 4 GPUs per node (fixed: cannot request fewer)
 #SBATCH --cpus-per-task=32           # All CPUs to the single task (torchrun distributes them)
-#SBATCH --time=00:15:00              # Maximum runtime
+#SBATCH --time=00:30:00              # Maximum runtime
 #SBATCH --partition=normal
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
