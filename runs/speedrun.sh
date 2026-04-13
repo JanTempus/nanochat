@@ -28,6 +28,12 @@ mkdir -p $NANOCHAT_BASE_DIR
 source .venv/bin/activate
 export PYTHONPATH=/usr/local/lib/python3.12/dist-packages:\$PYTHONPATH
 
+
+# Get the path to your venv's site-packages
+VENV_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+
+# Prepend it to PYTHONPATH and export it
+export PYTHONPATH="$VENV_PACKAGES:$PYTHONPATH"
 # -----------------------------------------------------------------------------
 # wandb setup
 # If you wish to use wandb for logging (it's nice!, recommended).
