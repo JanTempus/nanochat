@@ -55,7 +55,7 @@ echo "Master: $MASTER_ADDR:$MASTER_PORT"
 DEPTH=${DEPTH:-12}
 DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-16}
 TARGET_PDR=${TARGET_PDR:-12}
-WANDB_RUN=${WANDB_RUN:-"nanochat_16384_12"}
+WANDB_RUN=${WANDB_RUN:-"nanochat_16384_12_bpe"}
 WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
 NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.cache/nanochat"}
 export NANOCHAT_BASE_DIR
@@ -64,8 +64,14 @@ NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus
 export NANOCHAT_TOKENIZER_DIR
 
 # ── Python path ──────────────────────────────────────────────────────────────
-PYTHON_PATH=${PYTHON_PATH:-"/iopsstor/scratch/cscs/jtempus/nanochat/.venv/bin/python"}
-echo "Using Python: $PYTHON_PATH"
+# Activate venv so all venv packages are importable, then add system
+# site-packages (where torch lives) to PYTHONPATH as well.
+VENV_DIR=${VENV_DIR:-"/iopsstor/scratch/cscs/jtempus/nanochat/.venv"}
+source "$VENV_DIR/bin/activate"
+VENV_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+export PYTHONPATH="$VENV_PACKAGES:/usr/local/lib/python3.12/dist-packages:$PYTHONPATH"
+echo "Using Python: $(which python)"
+echo "PYTHONPATH:    $PYTHONPATH"
 
 GPUS_PER_NODE=${SLURM_GPUS_ON_NODE:-4}
 TOTAL_GPUS=$((SLURM_NNODES * GPUS_PER_NODE))
@@ -82,8 +88,7 @@ echo "======================================================================"
 TOKEN_BYTES_PATH="$NANOCHAT_TOKENIZER_DIR/token_bytes.pt"
 if [[ ! -f "$TOKEN_BYTES_PATH" ]]; then
     echo "token_bytes.pt not found at $TOKEN_BYTES_PATH, generating..."
-    PYTHONPATH=/usr/local/lib/python3.12/dist-packages:$PYTHONPATH \
-        $PYTHON_PATH -m scripts.generate_token_bytes
+    python -m scripts.generate_token_bytes
     echo "token_bytes.pt generated."
 else
     echo "token_bytes.pt already exists, skipping generation."
@@ -103,10 +108,9 @@ fi
 # workers and handles RANK/LOCAL_RANK/WORLD_SIZE + NCCL rendezvous.
 # This matches how speedrun.sh launches training (torch.distributed.run).
 echo "Starting distributed training..."
-export PYTHONPATH=/usr/local/lib/python3.12/dist-packages:$PYTHONPATH
 export WANDB_API_KEY WANDB_ENTITY NANOCHAT_BASE_DIR NANOCHAT_TOKENIZER_DIR
 
-srun $PYTHON_PATH -m torch.distributed.run \
+srun python -m torch.distributed.run \
     --nproc_per_node=$GPUS_PER_NODE \
     --nnodes=$SLURM_NNODES \
     --node-rank=\$SLURM_NODEID \
