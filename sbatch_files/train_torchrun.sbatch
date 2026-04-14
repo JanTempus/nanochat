@@ -60,7 +60,7 @@ WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
 NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.cache/nanochat"}
 export NANOCHAT_BASE_DIR
 
-NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/bpe_tokenizer/nano_bpe/32768/tokenizer.json"}
+NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/bpe_tokenizer/nano_bpe/32768"}
 export NANOCHAT_TOKENIZER_DIR
 
 # ── Python path ──────────────────────────────────────────────────────────────
@@ -85,10 +85,19 @@ echo "NANOCHAT_BASE_DIR: $NANOCHAT_BASE_DIR"
 echo "======================================================================"
 
 # ── Generate token_bytes.pt if not present ───────────────────────────────────
+# Runs inside the nano_distributed container so torch is available.
 TOKEN_BYTES_PATH="$NANOCHAT_TOKENIZER_DIR/token_bytes.pt"
 if [[ ! -f "$TOKEN_BYTES_PATH" ]]; then
     echo "token_bytes.pt not found at $TOKEN_BYTES_PATH, generating..."
-    python -m scripts.generate_token_bytes
+    srun --environment=nano_distributed --ntasks=1 bash -c "
+        source $VENV_DIR/bin/activate && \
+        VENV_PKG=\$(python -c \"import site; print(site.getsitepackages()[0])\") && \
+        export PYTHONPATH=\$VENV_PKG:/usr/local/lib/python3.12/dist-packages:\$PYTHONPATH && \
+        export NANOCHAT_BASE_DIR=$NANOCHAT_BASE_DIR \
+               NANOCHAT_TOKENIZER_DIR=$NANOCHAT_TOKENIZER_DIR && \
+        cd $SLURM_SUBMIT_DIR && \
+        python -m scripts.generate_token_bytes
+    "
     echo "token_bytes.pt generated."
 else
     echo "token_bytes.pt already exists, skipping generation."
