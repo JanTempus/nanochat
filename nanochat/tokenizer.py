@@ -400,7 +400,7 @@ def get_tokenizer_dir():
 
 def get_tokenizer():
     tokenizer_dir = get_tokenizer_dir()
-    return RustBPETokenizer.from_directory(tokenizer_dir)
+    return HuggingFaceTokenizer.from_directory(tokenizer_dir)
 
 def get_token_bytes(device="cpu"):
     import torch
