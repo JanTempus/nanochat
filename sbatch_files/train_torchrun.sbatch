@@ -109,7 +109,7 @@ fi
 # This matches how speedrun.sh launches training (torch.distributed.run).
 echo "Starting distributed training..."
 
-srun bash -c "
+srun --environment=nano_distributed bash -c "
     source $VENV_DIR/bin/activate && \
     VENV_PKG=\$(python -c \"import site; print(site.getsitepackages()[0])\") && \
     export PYTHONPATH=\$VENV_PKG:/usr/local/lib/python3.12/dist-packages:\$PYTHONPATH && \
