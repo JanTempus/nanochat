@@ -53,14 +53,15 @@ echo "Master: $MASTER_ADDR:$MASTER_PORT"
 
 # ── Experiment identity (override via --export) ──────────────────────────────
 DEPTH=${DEPTH:-12}
-DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-16}
-TARGET_PDR=${TARGET_PDR:-12}
+DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-32}
+TARGET_PDR=${TARGET_PDR:-10.5}
 WANDB_RUN=${WANDB_RUN:-"nanochat_32768_12_nano_bpe"}
 WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
 NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.cache/nanochat"}
 export NANOCHAT_BASE_DIR
 
-NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/bpe_tokenizer/nano_bpe/32768"}
+NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/bpe_tokenizer/nano_bpe_climb_mix/32768/tokenizer.json
+"}
 export NANOCHAT_TOKENIZER_DIR
 
 # ── Python path ──────────────────────────────────────────────────────────────
@@ -137,7 +138,6 @@ srun --environment=nano_distributed bash -c "
             --depth=$DEPTH \
             --device-batch-size=$DEVICE_BATCH_SIZE \
             --target-param-data-ratio=$TARGET_PDR \
-            --fp8 \
             --run=$WANDB_RUN
 "
 

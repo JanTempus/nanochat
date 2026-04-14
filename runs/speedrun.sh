@@ -91,7 +91,7 @@ python -m torch.distributed.run --standalone --nproc_per_node=4 -m scripts.chat_
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
 # run SFT and eval the model
-python -m torch.distributed.run --standalone --nproc_per_node=4 -m scripts.base_train ...
+python -m torch.distributed.run --standalone --nproc_per_node=4 -m scripts.chat_sft ...
 python -m torch.distributed.run --standalone --nproc_per_node=4 -m scripts.chat_eval -- -i sft
 
 # chat with the model over CLI! Leave out the -p to chat interactively
