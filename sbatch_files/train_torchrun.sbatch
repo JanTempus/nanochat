@@ -55,12 +55,12 @@ echo "Master: $MASTER_ADDR:$MASTER_PORT"
 DEPTH=${DEPTH:-12}
 DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-16}
 TARGET_PDR=${TARGET_PDR:-12}
-WANDB_RUN=${WANDB_RUN:-"nanochat_16384_12_bpe"}
+WANDB_RUN=${WANDB_RUN:-"nanochat_32768_12_nano_bpe"}
 WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
 NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.cache/nanochat"}
 export NANOCHAT_BASE_DIR
 
-NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/bpe_tokenizer/bpe_16384"}
+NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/bpe_tokenizer/nano_bpe/32768/tokenizer.json"}
 export NANOCHAT_TOKENIZER_DIR
 
 # ── Python path ──────────────────────────────────────────────────────────────
