@@ -56,6 +56,7 @@ parser.add_argument("--window-pattern", type=str, default="SSSL", help="sliding 
 parser.add_argument("--num-iterations", type=int, default=-1, help="explicit number of optimization steps (-1 = disable)")
 parser.add_argument("--target-flops", type=float, default=-1.0, help="calculate num_iterations to reach target_flops (-1 = disable)")
 parser.add_argument("--target-param-data-ratio", type=float, default=10.5, help="calculate num_iterations to maintain data:param ratio (Chinchilla=20, -1 = disable)")
+parser.add_argument("--fix-vocab-size-compute", action="store_true", help="pin D_REF as if d12 had vocab=32768 so batch-size and weight-decay scaling are consistent across tokenizers of different vocab sizes")
 # Optimization
 parser.add_argument("--device-batch-size", type=int, default=32, help="per-device batch size. good number to reduce to 16,8,4,... if you OOM on VRAM.")
 parser.add_argument("--total-batch-size", type=int, default=-1, help="total batch size in tokens. decent numbers are e.g. 524288. (-1 = auto-compute optimal)")
@@ -270,6 +271,10 @@ target_tokens = int(args.target_param_data_ratio * num_scaling_params) # optimal
 # Our reference model is d12, this is where a lot of hyperparameters are tuned and then transfered to higher depths (muP style)
 d12_ref = build_model_meta(12) # creates the model on meta device
 D_REF = args.target_param_data_ratio * get_scaling_params(d12_ref) # compute-optimal d12 training horizon in tokens (measured empirically)
+if args.fix_vocab_size_compute:
+    pc_ref = d12_ref.num_scaling_params()
+    D_REF = args.target_param_data_ratio * (pc_ref['transformer_matrices'] + d12_ref.config.n_embd * 32768)
+    print0(f"fix_vocab_size_compute=True: D_REF pinned to vocab=32,768 (real vocab={vocab_size:,}); D_REF={int(D_REF):,}")
 B_REF = 2**19 # optimal batch size at d12 ~= 524,288 tokens (measured empirically)
 
 # 2) Now that we have the token horizon, we can calculate the optimal batch size
