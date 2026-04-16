@@ -263,8 +263,10 @@ print0(f"Estimated FLOPs per token: {num_flops_per_token:e}")
 def get_scaling_params(m):
     # As for which params to use exactly, transformer matrices + lm_head gives cleanest scaling laws (see dev/LOG.md Jan 27, 2026)
     params_counts = m.num_scaling_params()
-    scaling_params = params_counts['transformer_matrices'] + params_counts['lm_head']
-    return scaling_params
+    if args.fix_vocab_size_compute:
+        # Pretend lm_head has vocab=32768 so target_tokens and D_REF are independent of tokenizer vocab
+        return params_counts['transformer_matrices'] + m.config.n_embd * 32768
+    return params_counts['transformer_matrices'] + params_counts['lm_head']
 num_scaling_params = get_scaling_params(model)
 target_tokens = int(args.target_param_data_ratio * num_scaling_params) # optimal tokens for the model we are about to train
 
@@ -272,9 +274,7 @@ target_tokens = int(args.target_param_data_ratio * num_scaling_params) # optimal
 d12_ref = build_model_meta(12) # creates the model on meta device
 D_REF = args.target_param_data_ratio * get_scaling_params(d12_ref) # compute-optimal d12 training horizon in tokens (measured empirically)
 if args.fix_vocab_size_compute:
-    pc_ref = d12_ref.num_scaling_params()
-    D_REF = args.target_param_data_ratio * (pc_ref['transformer_matrices'] + d12_ref.config.n_embd * 32768)
-    print0(f"fix_vocab_size_compute=True: D_REF pinned to vocab=32,768 (real vocab={vocab_size:,}); D_REF={int(D_REF):,}")
+    print0(f"fix_vocab_size_compute=True: scaling computed at vocab=32,768 (real vocab={vocab_size:,}); target_tokens={target_tokens:,}, D_REF={int(D_REF):,}")
 B_REF = 2**19 # optimal batch size at d12 ~= 524,288 tokens (measured empirically)
 
 # 2) Now that we have the token horizon, we can calculate the optimal batch size
