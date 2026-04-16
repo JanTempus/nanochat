@@ -24,12 +24,19 @@ def _load_flash_attention_3():
     """Try to load Flash Attention 3 (requires Hopper GPU, sm90)."""
     if not torch.cuda.is_available():
         return None
+    major, _ = torch.cuda.get_device_capability()
+    # FA3 kernels are compiled for Hopper (sm90) only
+    # Ada (sm89), Blackwell (sm100) need SDPA fallback until FA3 is recompiled
+    if major != 9:
+        return None
+    # Prefer a locally-installed flash_attn_interface (e.g. built from source on aarch64 GH200)
     try:
-        major, _ = torch.cuda.get_device_capability()
-        # FA3 kernels are compiled for Hopper (sm90) only
-        # Ada (sm89), Blackwell (sm100) need SDPA fallback until FA3 is recompiled
-        if major != 9:
-            return None
+        import flash_attn_interface
+        return flash_attn_interface
+    except ImportError:
+        pass
+    # Fallback: HuggingFace kernels hub (x86_64 prebuilts only)
+    try:
         import os
         os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
         from kernels import get_kernel
