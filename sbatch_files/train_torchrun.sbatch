@@ -138,6 +138,7 @@ srun --environment=nano_distributed bash -c "
             --device-batch-size=$DEVICE_BATCH_SIZE \
             --target-param-data-ratio=$TARGET_PDR \
             --run=$WANDB_RUN \
+            --fix-vocab-size-compute=True\
             --eval-every=200
 
 "
