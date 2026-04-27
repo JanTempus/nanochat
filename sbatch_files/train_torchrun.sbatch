@@ -60,7 +60,7 @@ WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
 NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.cache/nanochat"}
 export NANOCHAT_BASE_DIR
 
-NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/bpe_tokenizer/nano_bpe_climb_mix/8192/"}
+NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/iopsstor/scratch/cscs/jtempus/tokenisation_lp/bpe_tokenizers_climbmix/nano_bpe_climb_mix/8192/"}
 export NANOCHAT_TOKENIZER_DIR
 
 # ── Python path ──────────────────────────────────────────────────────────────
@@ -138,7 +138,7 @@ srun --environment=nano_distributed bash -c "
             --device-batch-size=$DEVICE_BATCH_SIZE \
             --target-param-data-ratio=$TARGET_PDR \
             --run=$WANDB_RUN \
-            --fix-vocab-size-compute=True\
+            --fix-vocab-size-compute\
             --eval-every=200
 
 "
