@@ -25,6 +25,7 @@
 #   DEPTH             - transformer depth (default 12)
 #   DEVICE_BATCH_SIZE - per-GPU batch size (default 16)
 #   TARGET_PDR        - target param:data ratio (default 12)
+#   DATASET_SHARDS    - number of training dataset shards (default 170)
 #   WANDB_RUN         - wandb run name ('dummy' disables logging)
 #   WANDB_PROJECT     - wandb project name
 #   NANOCHAT_BASE_DIR      - data/cache/checkpoint directory
@@ -56,6 +57,7 @@ echo "Master: $MASTER_ADDR:$MASTER_PORT"
 DEPTH=${DEPTH:-12}
 DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-32}
 TARGET_PDR=${TARGET_PDR:-10.5}
+DATASET_SHARDS=${DATASET_SHARDS:-170}
 WANDB_RUN=${WANDB_RUN:-"bpe_8192_d12"}
 WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
 WANDB_PROJECT="hyperparameter_search"
@@ -82,6 +84,7 @@ echo "Total GPUs:        $TOTAL_GPUS (${SLURM_NNODES} nodes x ${GPUS_PER_NODE} G
 echo "Depth:             $DEPTH"
 echo "Device batch size: $DEVICE_BATCH_SIZE"
 echo "Target PDR:        $TARGET_PDR"
+echo "Dataset shards:    $DATASET_SHARDS"
 echo "WANDB_RUN:         $WANDB_RUN"
 echo "WANDB_PROJECT:     $WANDB_PROJECT"
 echo "NANOCHAT_BASE_DIR: $NANOCHAT_BASE_DIR"
@@ -105,6 +108,19 @@ if [[ ! -f "$TOKEN_BYTES_PATH" ]]; then
 else
     echo "token_bytes.pt already exists, skipping generation."
 fi
+
+# ── Download pretraining dataset ─────────────────────────────────────────────
+# Existing shards are skipped by nanochat.dataset.
+echo "Ensuring $DATASET_SHARDS training dataset shards are available..."
+srun --environment=nano_distributed --nodes=1 --ntasks=1 bash -c "
+    source $VENV_DIR/bin/activate && \
+    VENV_PKG=\$(python -c \"import site; print(site.getsitepackages()[0])\") && \
+    export PYTHONPATH=\$VENV_PKG:/usr/local/lib/python3.12/dist-packages:\$PYTHONPATH && \
+    export NANOCHAT_BASE_DIR=$NANOCHAT_BASE_DIR && \
+    cd $SLURM_SUBMIT_DIR && \
+    python -m nanochat.dataset -n $DATASET_SHARDS
+"
+echo "Dataset is ready."
 
 # ── Load secrets ─────────────────────────────────────────────────────────────
 ENV_FILE="${HOME}/.env.local"
