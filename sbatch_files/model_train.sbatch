@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --time=00:40:00
+#SBATCH --time=00:20:00
 #SBATCH --partition=normal
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
@@ -20,11 +20,11 @@ export VENV_DIR="$REPO_DIR/.venv"
 
 export NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.cache/nanochat"}
 
-export NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/capstor/store/cscs/swissai/a0229/jtempus/tokenisation_lp/bpe_tokenizers_climbmix/nano_bpe_climb_mix/32768"}
+export NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/capstor/store/cscs/swissai/a0229/jtempus/tokenisation_lp/rounded_tokenizers/cross_over_climbmix400b_s7/vocab_32768/lp_32768_det"}
 
 # ── Experiment ───────────────────────────────────────────────────────────────
 
-export DEPTH=${DEPTH:-12}
+export DEPTH=${DEPTH:-8}
 export DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-32}
 export TARGET_PDR=${TARGET_PDR:-10.5}
 export DATASET_SHARDS=${DATASET_SHARDS:-170}
