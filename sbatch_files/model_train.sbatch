@@ -27,6 +27,7 @@ export NANOCHAT_TOKENIZER_DIR=${NANOCHAT_TOKENIZER_DIR:-"/capstor/store/cscs/swi
 export DEPTH=${DEPTH:-12}
 export DEVICE_BATCH_SIZE=${DEVICE_BATCH_SIZE:-32}
 export TARGET_PDR=${TARGET_PDR:-10.5}
+export DATASET_SHARDS=${DATASET_SHARDS:-170}
 
 export WANDB_RUN=${WANDB_RUN:-"bpe_8192_d12"}
 export WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
@@ -68,6 +69,18 @@ if [[ ! -f "$TOKEN_BYTES_PATH" ]]; then
         '
 fi
 
+# ── Download pretraining dataset ─────────────────────────────────────────────
+
+srun \
+    --nodes=1 \
+    --ntasks=1 \
+    --environment=nano_distributed \
+    bash -c '
+        source "$VENV_DIR/bin/activate"
+        cd "$REPO_DIR"
+        python -m nanochat.dataset -n "$DATASET_SHARDS"
+    '
+
 # ── Train ────────────────────────────────────────────────────────────────────
 
 srun \
@@ -94,4 +107,3 @@ srun \
             --eval-every=200 \
             --fp8
     '
-
