@@ -104,6 +104,5 @@ srun \
             --target-param-data-ratio="$TARGET_PDR" \
             --run="$WANDB_RUN" \
             --fix-vocab-size-compute \
-            --eval-every=200 \
-            --fp8
+            --eval-every=200
     '
