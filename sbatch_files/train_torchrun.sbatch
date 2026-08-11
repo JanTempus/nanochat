@@ -143,7 +143,8 @@ srun --environment=nano_distributed bash -c "
             --target-param-data-ratio=$TARGET_PDR \
             --run=$WANDB_RUN \
             --fix-vocab-size-compute\
-            --eval-every=200
+            --eval-every=200 \
+            --fp8
 "
 
 echo "======================================================================"
