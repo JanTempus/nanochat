@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --time=00:20:00
 #SBATCH --partition=normal
-#SBATCH --array=0-11%4
+#SBATCH --array=0-8%4
 #SBATCH --output=logs/d8-lr-boundary-%A_%a.out
 #SBATCH --error=logs/d8-lr-boundary-%A_%a.err
 
