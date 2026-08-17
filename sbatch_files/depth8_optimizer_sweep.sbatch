@@ -5,9 +5,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --time=03:00:00
+#SBATCH --time=00:20:00
 #SBATCH --partition=normal
-#SBATCH --array=0-49%4
+#SBATCH --array=0-19%4
 #SBATCH --output=logs/d8-sweep-%A_%a.out
 #SBATCH --error=logs/d8-sweep-%A_%a.err
 
@@ -21,7 +21,7 @@ SEED=42
 DEVICE_BATCH_SIZE=32
 TARGET_PDR=10.5
 WARMUP_STEPS=40
-WARMDOWN_RATIO=0.65
+WARMDOWN_RATIO=0.8
 FINAL_LR_FRAC=0.05
 
 BASE_MATRIX_LR=0.020
@@ -34,8 +34,8 @@ BASE_SCALAR_LR=0.50
 
 CONFIGS=()
 
-MATRIX_LRS=(0.010 0.015 0.020 0.030 0.040)
-WEIGHT_DECAYS=(0.14 0.21 0.28 0.42 0.56)
+MATRIX_LRS=(0.020 0.030 0.040)
+WEIGHT_DECAYS=(0.14 0.21 0.28)
 
 for matrix_lr in "${MATRIX_LRS[@]}"; do
     for weight_decay in "${WEIGHT_DECAYS[@]}"; do
@@ -46,9 +46,9 @@ for matrix_lr in "${MATRIX_LRS[@]}"; do
     done
 done
 
-EMBEDDING_LRS=(0.15 0.30 0.60)
-UNEMBEDDING_LRS=(0.004 0.008 0.016)
-SCALAR_LRS=(0.20 0.50 1.00)
+EMBEDDING_LRS=( 0.30 0.40 0.50 0.60 )
+UNEMBEDDING_LRS=( 0.016 0.02 0.024)
+SCALAR_LRS=(0.50 )
 
 for embedding_lr in "${EMBEDDING_LRS[@]}"; do
     for unembedding_lr in "${UNEMBEDDING_LRS[@]}"; do

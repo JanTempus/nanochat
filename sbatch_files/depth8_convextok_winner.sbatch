@@ -24,15 +24,10 @@ SCALAR_LR=0.50
 WARMUP_STEPS=40
 WARMDOWN_RATIO=0.80
 FINAL_LR_FRAC=0.05
-LR_SCHEDULE=linear
 
 # scripts.base_train currently implements the linear schedule directly and does
 # not expose an --lr-schedule argument. Fail loudly if this file is edited to
 # request a schedule the trainer cannot select.
-if [[ "$LR_SCHEDULE" != "linear" ]]; then
-    echo "Unsupported LR schedule: $LR_SCHEDULE (expected linear)" >&2
-    exit 2
-fi
 
 export REPO_DIR="${REPO_DIR:-/capstor/store/cscs/swissai/a0229/jtempus/nanochat}"
 export VENV_DIR="${VENV_DIR:-$REPO_DIR/.venv}"
@@ -90,7 +85,7 @@ echo "Tokenizer:   $NANOCHAT_TOKENIZER_DIR"
 echo "Dataset:     $DATASET_DIR"
 echo "Winner:      matrix_lr=$MATRIX_LR weight_decay=$WEIGHT_DECAY embedding_lr=$EMBEDDING_LR"
 echo "             unembedding_lr=$UNEMBEDDING_LR scalar_lr=$SCALAR_LR warmup_steps=$WARMUP_STEPS"
-echo "             warmdown_ratio=$WARMDOWN_RATIO final_lr_frac=$FINAL_LR_FRAC lr_schedule=$LR_SCHEDULE"
+echo "             warmdown_ratio=$WARMDOWN_RATIO final_lr_frac=$FINAL_LR_FRAC"
 
 export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS=1
