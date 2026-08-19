@@ -5,9 +5,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --time=00:20:00
+#SBATCH --time=00:35:00
 #SBATCH --partition=normal
-#SBATCH --array=0-19%4
+#SBATCH --array=0-23%4
 #SBATCH --output=logs/d8-sweep-%A_%a.out
 #SBATCH --error=logs/d8-sweep-%A_%a.err
 
@@ -16,12 +16,12 @@
 
 # ── Fixed training configuration ─────────────────────────────────────────────
 
-DEPTH=8
+DEPTH=12
 SEED=42
 DEVICE_BATCH_SIZE=32
 TARGET_PDR=10.5
 WARMUP_STEPS=40
-WARMDOWN_RATIO=0.8
+WARMDOWN_RATIO=0.65
 FINAL_LR_FRAC=0.05
 
 BASE_MATRIX_LR=0.020
@@ -47,7 +47,7 @@ for matrix_lr in "${MATRIX_LRS[@]}"; do
 done
 
 EMBEDDING_LRS=( 0.30 0.40 0.50 0.60 )
-UNEMBEDDING_LRS=( 0.016 0.02 0.024)
+UNEMBEDDING_LRS=( 0.012 0.016 0.02 0.024)
 SCALAR_LRS=(0.50 )
 
 for embedding_lr in "${EMBEDDING_LRS[@]}"; do
@@ -100,7 +100,7 @@ source "$ENV_FILE"
 set +a
 
 export WANDB_ENTITY="tempus-apertus"
-export WANDB_PROJECT="hyperparameter_search"
+export WANDB_PROJECT="Tuned_runs"
 
 # ── Download the dataset once when its directory is absent ───────────────────
 
