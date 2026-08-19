@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=d8-opt-sweep
+#SBATCH --job-name=d12-opt-sweep
 #SBATCH --account=a0229
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -7,9 +7,9 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --time=00:35:00
 #SBATCH --partition=normal
-#SBATCH --array=0-23%4
-#SBATCH --output=logs/d8-sweep-%A_%a.out
-#SBATCH --error=logs/d8-sweep-%A_%a.err
+#SBATCH --array=0-19%4
+#SBATCH --output=logs/d12-sweep-%A_%a.out
+#SBATCH --error=logs/d12-sweep-%A_%a.err
 
 # This file deliberately keeps depth, batch sizing, and the LR schedule fixed.
 # It sweeps Muon and AdamW independently and does not enable FP8.
@@ -30,7 +30,7 @@ BASE_EMBEDDING_LR=0.30
 BASE_UNEMBEDDING_LR=0.008
 BASE_SCALAR_LR=0.50
 
-# ── Build the 50 non-baseline configurations ─────────────────────────────────
+# ── Build the 24 non-baseline configurations ─────────────────────────────────
 
 CONFIGS=()
 
@@ -46,20 +46,12 @@ for matrix_lr in "${MATRIX_LRS[@]}"; do
     done
 done
 
-EMBEDDING_LRS=( 0.30 0.40 0.50 0.60 )
-UNEMBEDDING_LRS=( 0.012 0.016 0.02 0.024)
-SCALAR_LRS=(0.50 )
+EMBEDDING_LRS=( 0.30 0.40 0.50 )
+UNEMBEDDING_LRS=( 0.012 0.014 0.016 0.02)
 
 for embedding_lr in "${EMBEDDING_LRS[@]}"; do
     for unembedding_lr in "${UNEMBEDDING_LRS[@]}"; do
-        for scalar_lr in "${SCALAR_LRS[@]}"; do
-            if [[ "$embedding_lr" == "$BASE_EMBEDDING_LR" && \
-                  "$unembedding_lr" == "$BASE_UNEMBEDDING_LR" && \
-                  "$scalar_lr" == "$BASE_SCALAR_LR" ]]; then
-                continue
-            fi
-            CONFIGS+=("adamw|$BASE_MATRIX_LR|$BASE_WEIGHT_DECAY|$embedding_lr|$unembedding_lr|$scalar_lr")
-        done
+        CONFIGS+=("adamw|$BASE_MATRIX_LR|$BASE_WEIGHT_DECAY|$embedding_lr|$unembedding_lr|$BASE_SCALAR_LR")
     done
 done
 
@@ -131,8 +123,8 @@ JOB_ID=$SLURM_JOB_ID
 ARRAY_JOB_ID=$SLURM_ARRAY_JOB_ID
 RUN_SUFFIX="${ARRAY_JOB_ID}_${TASK_ID}_${JOB_ID}"
 
-export WANDB_RUN="d8_${TRIAL_LABEL}_${RUN_SUFFIX}"
-export MODEL_TAG="d8_${TRIAL_LABEL}_${RUN_SUFFIX}"
+export WANDB_RUN="d${DEPTH}_${TRIAL_LABEL}_${RUN_SUFFIX}"
+export MODEL_TAG="d${DEPTH}_${TRIAL_LABEL}_${RUN_SUFFIX}"
 
 export MATRIX_LR
 export WEIGHT_DECAY
@@ -142,7 +134,10 @@ export SCALAR_LR
 export WARMUP_STEPS
 export WARMDOWN_RATIO
 export FINAL_LR_FRAC
+export DEPTH
 export SEED
+export DEVICE_BATCH_SIZE
+export TARGET_PDR
 
 echo "W&B:        $WANDB_ENTITY/$WANDB_PROJECT/$WANDB_RUN"
 echo "Model tag:  $MODEL_TAG"
@@ -166,10 +161,10 @@ srun \
             --standalone \
             --nproc_per_node=4 \
             -m scripts.base_train -- \
-            --depth=8 \
+            --depth="$DEPTH" \
             --seed="$SEED" \
-            --device-batch-size=32 \
-            --target-param-data-ratio=10.5 \
+            --device-batch-size="$DEVICE_BATCH_SIZE" \
+            --target-param-data-ratio="$TARGET_PDR" \
             --run="$WANDB_RUN" \
             --model-tag="$MODEL_TAG" \
             --fix-vocab-size-compute \
