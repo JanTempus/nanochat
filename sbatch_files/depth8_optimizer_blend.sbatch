@@ -7,29 +7,29 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --time=00:10:00
 #SBATCH --partition=normal
-#SBATCH --array=0-11%4
+#SBATCH --array=0-3%4
 #SBATCH --output=logs/d8-blend-%A_%a.out
 #SBATCH --error=logs/d8-blend-%A_%a.err
 
-DEPTH=8
+# Fixed training configuration. Edit these values to change the run.
+DEPTH=12
 SEED=42
 DEVICE_BATCH_SIZE=32
 TARGET_PDR=10.5
 WARMUP_STEPS=40
 WARMDOWN_RATIO=0.8
 FINAL_LR_FRAC=0.05
+SAVE_EVERY=-1
 
 MUON_CANDIDATES=(
-    "15|0.030|0.21"
-    "14|0.030|0.14"
-    "19|0.040|0.14"
-    "16|0.030|0.28"
+    "2|0.030|0.14"
+    "3|0.030|0.21"
+    "5|0.040|0.14"
+    "4|0.030|0.28"
 )
 
 ADAMW_CANDIDATES=(
-    "39|0.30|0.016|0.50"
-    "48|0.60|0.016|0.50"
-    "38|0.30|0.016|0.20"
+    "18|0.50|0.016|0.50"
 )
 
 CONFIGS=()
@@ -45,7 +45,7 @@ done
 TASK_ID=$SLURM_ARRAY_TASK_ID
 IFS='|' read -r MUON_RUN ADAMW_RUN MATRIX_LR WEIGHT_DECAY EMBEDDING_LR UNEMBEDDING_LR SCALAR_LR <<< "${CONFIGS[$TASK_ID]}"
 
-echo "CONFIG|$TASK_ID|$MUON_RUN|$ADAMW_RUN|$MATRIX_LR|$WEIGHT_DECAY|$EMBEDDING_LR|$UNEMBEDDING_LR|$SCALAR_LR|$WARMUP_STEPS|$WARMDOWN_RATIO|$FINAL_LR_FRAC"
+echo "CONFIG|$TASK_ID|$MUON_RUN|$ADAMW_RUN|$MATRIX_LR|$WEIGHT_DECAY|$EMBEDDING_LR|$UNEMBEDDING_LR|$SCALAR_LR|$DEPTH|$SEED|$DEVICE_BATCH_SIZE|$TARGET_PDR|$WARMUP_STEPS|$WARMDOWN_RATIO|$FINAL_LR_FRAC|$SAVE_EVERY"
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
     exit 0
@@ -85,8 +85,8 @@ fi
 flock -u 9
 
 RUN_SUFFIX="${SLURM_ARRAY_JOB_ID}_${TASK_ID}_${SLURM_JOB_ID}"
-export WANDB_RUN="d8_blend_m${MUON_RUN}_a${ADAMW_RUN}_${TASK_ID}_${RUN_SUFFIX}"
-export MODEL_TAG="d8_blend_m${MUON_RUN}_a${ADAMW_RUN}_${TASK_ID}_${RUN_SUFFIX}"
+export WANDB_RUN="d${DEPTH}_blend_m${MUON_RUN}_a${ADAMW_RUN}_${TASK_ID}_${RUN_SUFFIX}"
+export MODEL_TAG="d${DEPTH}_blend_m${MUON_RUN}_a${ADAMW_RUN}_${TASK_ID}_${RUN_SUFFIX}"
 
 export MATRIX_LR
 export WEIGHT_DECAY
@@ -96,7 +96,11 @@ export SCALAR_LR
 export WARMUP_STEPS
 export WARMDOWN_RATIO
 export FINAL_LR_FRAC
+export SAVE_EVERY
+export DEPTH
 export SEED
+export DEVICE_BATCH_SIZE
+export TARGET_PDR
 
 echo "W&B:        $WANDB_ENTITY/$WANDB_PROJECT/$WANDB_RUN"
 echo "Model tag:  $MODEL_TAG"
@@ -120,10 +124,10 @@ srun \
             --standalone \
             --nproc_per_node=4 \
             -m scripts.base_train -- \
-            --depth=8 \
+            --depth="$DEPTH" \
             --seed="$SEED" \
-            --device-batch-size=32 \
-            --target-param-data-ratio=10.5 \
+            --device-batch-size="$DEVICE_BATCH_SIZE" \
+            --target-param-data-ratio="$TARGET_PDR" \
             --run="$WANDB_RUN" \
             --model-tag="$MODEL_TAG" \
             --fix-vocab-size-compute \
@@ -138,5 +142,5 @@ srun \
             --eval-every=200 \
             --core-metric-every=-1 \
             --sample-every=-1 \
-            --save-every=-1
+            --save-every="$SAVE_EVERY"
     '
