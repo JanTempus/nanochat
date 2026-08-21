@@ -61,7 +61,7 @@ source "$HOME/.env.local"
 set +a
 
 export WANDB_ENTITY="tempus-apertus"
-export WANDB_PROJECT="hyperparameter_search"
+export WANDB_PROJECT="Tuned_runs"
 
 DATASET_DIR="$NANOCHAT_BASE_DIR/base_data_climbmix"
 mkdir -p "$NANOCHAT_BASE_DIR"
