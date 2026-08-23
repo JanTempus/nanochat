@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --time=00:35:00
 #SBATCH --partition=normal
-#SBATCH --array=0-35
+#SBATCH --array=0-26
 #SBATCH --output=logs/baseline-model-train-%A_%a.out
 #SBATCH --error=logs/baseline-model-train-%A_%a.err
 
@@ -27,7 +27,7 @@ export VENV_DIR="$REPO_DIR/.venv"
 export NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.cache/nanochat"}
 
 export TOKENIZER_BASE_DIR="/capstor/store/cscs/swissai/a0229/jtempus/tokenisation_lp/baseline_tokenisers"
-TOKENIZER_FAMILY_LIST=(basic_bpe bpe_vocab_unigram frequent_pretoken unigram)
+TOKENIZER_FAMILY_LIST=(basic_bpe bpe_vocab_unigram unigram)
 VOCAB_SIZE_LIST=(8192 16384 32768)
 SEED_LIST=(42 43 44)
 
