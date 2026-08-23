@@ -71,8 +71,8 @@ export DATASET_SHARDS=170
 
 export MATRIX_LR=0.020 # yes
 export WEIGHT_DECAY=0.28 # yes
-export EMBEDDING_LR=0.50 # yes
-export UNEMBEDDING_LR=0.016 # yes
+export EMBEDDING_LR=0.3 # yes
+export UNEMBEDDING_LR=0.008 # yes
 export SCALAR_LR=0.50 # yes
 export WARMUP_STEPS=40 # yes
 export WARMDOWN_RATIO=0.65 # yes
@@ -80,7 +80,7 @@ export FINAL_LR_FRAC=0.05 # yes
 
 
 export WANDB_ENTITY=${WANDB_ENTITY:-"tempus-apertus"}
-export WANDB_PROJECT=${WANDB_PROJECT:-"different_tokenisers"}
+export WANDB_PROJECT=${WANDB_PROJECT:-"baseline_runs"}
 
 # ── W&B credentials ──────────────────────────────────────────────────────────
 
