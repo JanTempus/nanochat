@@ -5,9 +5,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --time=00:35:00
+#SBATCH --time=00:45:00
 #SBATCH --partition=normal
-#SBATCH --array=0-26%4
+#SBATCH --array=0-8
 #SBATCH --output=logs/baseline-model-train-%A_%a.out
 #SBATCH --error=logs/baseline-model-train-%A_%a.err
 
@@ -28,7 +28,7 @@ export NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.c
 
 export TOKENIZER_BASE_DIR="/capstor/store/cscs/swissai/a0229/jtempus/tokenisation_lp/baseline_tokenisers"
 TOKENIZER_FAMILY_LIST=(basic_bpe bpe_vocab_unigram unigram)
-VOCAB_SIZE_LIST=(65536 131072 262144)
+VOCAB_SIZE_LIST=(262144)
 SEED_LIST=(42 43 44)
 
 if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
