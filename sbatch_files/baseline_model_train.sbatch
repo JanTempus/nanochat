@@ -7,14 +7,14 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --time=00:35:00
 #SBATCH --partition=normal
-#SBATCH --array=0-26
+#SBATCH --array=0-26%4
 #SBATCH --output=logs/baseline-model-train-%A_%a.out
 #SBATCH --error=logs/baseline-model-train-%A_%a.err
 
 set -euo pipefail
 
 # Submit one independent job per tokenizer-family/vocabulary/seed combination.
-# There is intentionally no "%N" array limit, so all jobs may run concurrently:
+# The "%4" array limit allows at most four jobs to run concurrently:
 #   sbatch sbatch_files/baseline_model_train.sbatch
 
 export PYTHONUNBUFFERED=1
@@ -56,11 +56,6 @@ TOKENIZER_FAMILY=${TOKENIZER_FAMILY_LIST[$FAMILY_INDEX]}
 VOCAB_SIZE=${VOCAB_SIZE_LIST[$VOCAB_INDEX]}
 export SEED=${SEED_LIST[$SEED_INDEX]}
 
-# Keep --array's upper bound equal to TOTAL_RUNS - 1 when editing these lists.
-if (( TOTAL_RUNS != 36 )); then
-    echo "The grid contains $TOTAL_RUNS runs, but #SBATCH --array is configured for 36." >&2
-    exit 2
-fi
 
 # ── Shared training configuration ──────────────────────────────────────────
 
