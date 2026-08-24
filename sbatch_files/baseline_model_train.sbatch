@@ -28,7 +28,7 @@ export NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.c
 
 export TOKENIZER_BASE_DIR="/capstor/store/cscs/swissai/a0229/jtempus/tokenisation_lp/baseline_tokenisers"
 TOKENIZER_FAMILY_LIST=(basic_bpe bpe_vocab_unigram unigram)
-VOCAB_SIZE_LIST=(8192 16384 32768)
+VOCAB_SIZE_LIST=(65536 131072 262144)
 SEED_LIST=(42 43 44)
 
 if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
