@@ -134,24 +134,44 @@ flock -u 8
 DATASET_DIR="$NANOCHAT_BASE_DIR/base_data_climbmix"
 mkdir -p "$NANOCHAT_BASE_DIR"
 
-# Prevent concurrently starting array tasks from racing on the first download.
-exec 9>"$NANOCHAT_BASE_DIR/.climbmix-download.lock"
-flock 9
-if [[ -d "$DATASET_DIR" ]]; then
-    echo "Dataset already exists; skipping download: $DATASET_DIR"
+dataset_is_ready() {
+    local shard_index shard_path
+    [[ -d "$DATASET_DIR" ]] || return 1
+    for ((shard_index = 0; shard_index < DATASET_SHARDS; shard_index++)); do
+        printf -v shard_path '%s/shard_%05d.parquet' "$DATASET_DIR" "$shard_index"
+        [[ -f "$shard_path" ]] || return 1
+    done
+    [[ -f "$DATASET_DIR/shard_06542.parquet" ]]
+}
+
+if dataset_is_ready; then
+    echo "Dataset already has all required shards; skipping download: $DATASET_DIR"
 else
-    echo "Dataset not found; downloading $DATASET_SHARDS shards to $DATASET_DIR"
-    srun \
-        --nodes=1 \
-        --ntasks=1 \
-        --environment=nano_distributed \
-        bash -c '
-            source "$VENV_DIR/bin/activate"
-            cd "$REPO_DIR"
-            python -m nanochat.dataset -n "$DATASET_SHARDS"
-        '
+    # Lock only on the slow path, then check again because another array task
+    # may have downloaded the dataset while this task waited for the lock.
+    exec 9>"$NANOCHAT_BASE_DIR/.climbmix-download.lock"
+    flock 9
+    if dataset_is_ready; then
+        echo "Dataset was completed by another task: $DATASET_DIR"
+    else
+        echo "Dataset not found; downloading $DATASET_SHARDS shards to $DATASET_DIR"
+        srun \
+            --nodes=1 \
+            --ntasks=1 \
+            --environment=nano_distributed \
+            bash -c '
+                source "$VENV_DIR/bin/activate"
+                cd "$REPO_DIR"
+                python -m nanochat.dataset -n "$DATASET_SHARDS"
+            '
+        if ! dataset_is_ready; then
+            echo "Dataset download finished without all required shards: $DATASET_DIR" >&2
+            flock -u 9
+            exit 3
+        fi
+    fi
+    flock -u 9
 fi
-flock -u 9
 
 # ── Train this tokenizer/vocabulary/seed combination ─────────────────────────
 

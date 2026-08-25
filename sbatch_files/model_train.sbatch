@@ -1,19 +1,19 @@
 #!/bin/bash
 #SBATCH --job-name=nanochat-train
 #SBATCH --account=a0229
-#SBATCH --nodes=1
+#SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --time=00:35:00
+#SBATCH --time=01:00:00
 #SBATCH --partition=normal
-#SBATCH --array=0-8
+#SBATCH --array=0-5
 #SBATCH --output=logs/model-train-%A_%a.out
 #SBATCH --error=logs/model-train-%A_%a.err
 
 set -euo pipefail
 
-# Submit one independent job per vocabulary/seed combination. There is
+# Submit one independent job per rounding-scheme/vocabulary/seed combination. There is
 # intentionally no "%N" limit on --array, so all jobs may run simultaneously:
 #   sbatch sbatch_files/model_train.sbatch
 
@@ -28,38 +28,45 @@ export VENV_DIR="$REPO_DIR/.venv"
 export NANOCHAT_BASE_DIR=${NANOCHAT_BASE_DIR:-"/iopsstor/scratch/cscs/jtempus/.cache/nanochat"}
 
 
-export ROUNDING_SCHEME="det"
 export TOKENIZER_DIR_TEMPLATE="/capstor/store/cscs/swissai/a0229/jtempus/tokenisation_lp/rounded_tokenizers/cross_over_climbmix400b_s7/vocab_{vocab}/lp_{vocab}_{rounding_scheme}"
-RESOLVED_TOKENIZER_DIR_TEMPLATE=${TOKENIZER_DIR_TEMPLATE//\{rounding_scheme\}/$ROUNDING_SCHEME}
 
 # Keep the --array upper bound above equal to the number of
-# vocabulary/seed combinations minus one.
-VOCAB_SIZE_LIST=(8192 16384 32768)
-SEED_LIST=(42 43 44)
+# rounding-scheme/vocabulary/seed combinations minus one.
+ROUNDING_SCHEME_LIST=(det bias)
+VOCAB_SIZE_LIST=(16384 65536 262144)
+SEED_LIST=(42 )
 
 if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
     echo "This script must be submitted with sbatch as a Slurm job array." >&2
     exit 2
 fi
 
+NUM_SCHEMES=${#ROUNDING_SCHEME_LIST[@]}
+NUM_VOCABS=${#VOCAB_SIZE_LIST[@]}
 NUM_SEEDS=${#SEED_LIST[@]}
-TOTAL_RUNS=$((${#VOCAB_SIZE_LIST[@]} * NUM_SEEDS))
+RUNS_PER_SCHEME=$((NUM_VOCABS * NUM_SEEDS))
+TOTAL_RUNS=$((NUM_SCHEMES * RUNS_PER_SCHEME))
 
 if (( SLURM_ARRAY_TASK_ID < 0 || SLURM_ARRAY_TASK_ID >= TOTAL_RUNS )); then
-    echo "Array task $SLURM_ARRAY_TASK_ID has no matching vocabulary/seed combination." >&2
+    echo "Array task $SLURM_ARRAY_TASK_ID has no matching rounding-scheme/vocabulary/seed combination." >&2
     exit 2
 fi
 
-VOCAB_INDEX=$((SLURM_ARRAY_TASK_ID / NUM_SEEDS))
-SEED_INDEX=$((SLURM_ARRAY_TASK_ID % NUM_SEEDS))
+SCHEME_INDEX=$((SLURM_ARRAY_TASK_ID / RUNS_PER_SCHEME))
+SCHEME_TASK_INDEX=$((SLURM_ARRAY_TASK_ID % RUNS_PER_SCHEME))
+VOCAB_INDEX=$((SCHEME_TASK_INDEX / NUM_SEEDS))
+SEED_INDEX=$((SCHEME_TASK_INDEX % NUM_SEEDS))
+export ROUNDING_SCHEME=${ROUNDING_SCHEME_LIST[$SCHEME_INDEX]}
 VOCAB_SIZE=${VOCAB_SIZE_LIST[$VOCAB_INDEX]}
 export SEED=${SEED_LIST[$SEED_INDEX]}
+
+RESOLVED_TOKENIZER_DIR_TEMPLATE=${TOKENIZER_DIR_TEMPLATE//\{rounding_scheme\}/$ROUNDING_SCHEME}
 
 # ── Experiment ───────────────────────────────────────────────────────────────
 
 # Edit this block to change the shared training configuration.
-export DEPTH=12
-export DEVICE_BATCH_SIZE=32
+export DEPTH=18
+export DEVICE_BATCH_SIZE=16
 export TARGET_PDR=10.5
 export DATASET_SHARDS=170
 
@@ -137,24 +144,44 @@ flock -u 8
 DATASET_DIR="$NANOCHAT_BASE_DIR/base_data_climbmix"
 mkdir -p "$NANOCHAT_BASE_DIR"
 
-# Prevent concurrently starting array tasks from racing on the first download.
-exec 9>"$NANOCHAT_BASE_DIR/.climbmix-download.lock"
-flock 9
-if [[ -d "$DATASET_DIR" ]]; then
-    echo "Dataset already exists; skipping download: $DATASET_DIR"
+dataset_is_ready() {
+    local shard_index shard_path
+    [[ -d "$DATASET_DIR" ]] || return 1
+    for ((shard_index = 0; shard_index < DATASET_SHARDS; shard_index++)); do
+        printf -v shard_path '%s/shard_%05d.parquet' "$DATASET_DIR" "$shard_index"
+        [[ -f "$shard_path" ]] || return 1
+    done
+    [[ -f "$DATASET_DIR/shard_06542.parquet" ]]
+}
+
+if dataset_is_ready; then
+    echo "Dataset already has all required shards; skipping download: $DATASET_DIR"
 else
-    echo "Dataset not found; downloading $DATASET_SHARDS shards to $DATASET_DIR"
-    srun \
-        --nodes=1 \
-        --ntasks=1 \
-        --environment=nano_distributed \
-        bash -c '
-            source "$VENV_DIR/bin/activate"
-            cd "$REPO_DIR"
-            python -m nanochat.dataset -n "$DATASET_SHARDS"
-        '
+    # Lock only on the slow path, then check again because another array task
+    # may have downloaded the dataset while this task waited for the lock.
+    exec 9>"$NANOCHAT_BASE_DIR/.climbmix-download.lock"
+    flock 9
+    if dataset_is_ready; then
+        echo "Dataset was completed by another task: $DATASET_DIR"
+    else
+        echo "Dataset not found; downloading $DATASET_SHARDS shards to $DATASET_DIR"
+        srun \
+            --nodes=1 \
+            --ntasks=1 \
+            --environment=nano_distributed \
+            bash -c '
+                source "$VENV_DIR/bin/activate"
+                cd "$REPO_DIR"
+                python -m nanochat.dataset -n "$DATASET_SHARDS"
+            '
+        if ! dataset_is_ready; then
+            echo "Dataset download finished without all required shards: $DATASET_DIR" >&2
+            flock -u 9
+            exit 3
+        fi
+    fi
+    flock -u 9
 fi
-flock -u 9
 
 # ── Train this array task's vocabulary and seed ──────────────────────────
 
