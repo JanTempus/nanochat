@@ -13,7 +13,7 @@
 set -euo pipefail
 
 # Usage:
-#   sbatch sbatch_files/single_train.sbatch /path/to/tokenizer
+#   sbatch --time=HH:MM:SS sbatch_files/single_train.sbatch /path/to/tokenizer SEED
 
 export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS=1
@@ -24,7 +24,7 @@ export NANOCHAT_BASE_DIR="/iopsstor/scratch/cscs/jtempus/.cache/nanochat"
 export NANOCHAT_TOKENIZER_DIR="$1"
 
 export DEPTH=24
-export SEED=42
+export SEED="$2"
 export DEVICE_BATCH_SIZE=16
 export TARGET_PDR=10.5
 export DATASET_SHARDS=170
@@ -55,6 +55,7 @@ export MASTER_PORT=29500
 echo "Job:       $SLURM_JOB_ID"
 echo "Nodes:     $SLURM_NNODES"
 echo "GPUs:      $((SLURM_NNODES * GPUS_PER_NODE))"
+echo "Seed:      $SEED"
 echo "Tokenizer: $NANOCHAT_TOKENIZER_DIR"
 echo "W&B run:   $RUN_NAME"
 echo "Model tag: $RUN_NAME"
