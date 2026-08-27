@@ -61,17 +61,6 @@ echo "W&B run:   $RUN_NAME"
 echo "Model tag: $RUN_NAME"
 
 srun \
-    --nodes=1 \
-    --ntasks=1 \
-    --environment=nano_distributed \
-    bash -c '
-        source "$VENV_DIR/bin/activate"
-        cd "$REPO_DIR"
-        python -m scripts.generate_token_bytes
-        python -m nanochat.dataset -n "$DATASET_SHARDS"
-    '
-
-srun \
     --ntasks="$SLURM_NNODES" \
     --ntasks-per-node=1 \
     --environment=nano_distributed \
