@@ -60,16 +60,37 @@ echo "Tokenizer: $NANOCHAT_TOKENIZER_DIR"
 echo "W&B run:   $RUN_NAME"
 echo "Model tag: $RUN_NAME"
 
-srun \
-    --nodes=1 \
-    --ntasks=1 \
-    --environment=nano_distributed \
-    bash -c '
-        source "$VENV_DIR/bin/activate"
-        cd "$REPO_DIR"
-        python -m scripts.generate_token_bytes
-        python -m nanochat.dataset -n "$DATASET_SHARDS"
-    '
+TOKEN_BYTES_PATH="$NANOCHAT_TOKENIZER_DIR/token_bytes.pt"
+if [[ ! -f "$TOKEN_BYTES_PATH" ]]; then
+    echo "token_bytes.pt not found; generating it now"
+    srun \
+        --nodes=1 \
+        --ntasks=1 \
+        --environment=nano_distributed \
+        bash -c '
+            source "$VENV_DIR/bin/activate"
+            cd "$REPO_DIR"
+            python -m scripts.generate_token_bytes
+        '
+else
+    echo "token_bytes.pt already exists; skipping generation"
+fi
+
+DATASET_DIR="$NANOCHAT_BASE_DIR/base_data_climbmix"
+if [[ ! -d "$DATASET_DIR" ]]; then
+    echo "Dataset directory not found; downloading to $DATASET_DIR"
+    srun \
+        --nodes=1 \
+        --ntasks=1 \
+        --environment=nano_distributed \
+        bash -c '
+            source "$VENV_DIR/bin/activate"
+            cd "$REPO_DIR"
+            python -m nanochat.dataset -n "$DATASET_SHARDS"
+        '
+else
+    echo "Dataset directory already exists; skipping download: $DATASET_DIR"
+fi
 
 
 srun \
