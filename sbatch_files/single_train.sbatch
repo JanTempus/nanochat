@@ -21,7 +21,6 @@ export OMP_NUM_THREADS=1
 export REPO_DIR="/capstor/store/cscs/swissai/a0229/jtempus/nanochat"
 export VENV_DIR="$REPO_DIR/.venv"
 export NANOCHAT_BASE_DIR="/iopsstor/scratch/cscs/jtempus/.cache/nanochat"
-export NANOCHAT_TOKENIZER_DIR="$1"
 
 export DEPTH=24
 export SEED="$2"
@@ -45,10 +44,13 @@ set -a
 source "$HOME/.env.local"
 set +a
 
-TOKENIZER_PATH=${NANOCHAT_TOKENIZER_DIR%/}
-VOCAB_SIZE=$(basename "$TOKENIZER_PATH")
-TOKENIZER_FAMILY=$(basename "$(dirname "$TOKENIZER_PATH")")
-export RUN_NAME="baseline_${TOKENIZER_FAMILY}_vocab_${VOCAB_SIZE}_d${DEPTH}_s${SEED}"
+# Resolve the submitted path after loading environment defaults so the command-
+# line selection wins over any NANOCHAT_TOKENIZER_DIR value in .env.local. The
+# directory leaf is the tokenizer name (for example, lp_8192_bias).
+TOKENIZER_PATH=${1%/}
+TOKENIZER_NAME=$(basename "$TOKENIZER_PATH")
+export NANOCHAT_TOKENIZER_DIR="$TOKENIZER_PATH"
+export RUN_NAME="baseline_${TOKENIZER_NAME}_d${DEPTH}_s${SEED}"
 
 export GPUS_PER_NODE=4
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
@@ -59,6 +61,7 @@ echo "Nodes:     $SLURM_NNODES"
 echo "GPUs:      $((SLURM_NNODES * GPUS_PER_NODE))"
 echo "Seed:      $SEED"
 echo "Tokenizer: $NANOCHAT_TOKENIZER_DIR"
+echo "Tok name:  $TOKENIZER_NAME"
 echo "W&B run:   $RUN_NAME"
 echo "Model tag: $RUN_NAME"
 
