@@ -45,8 +45,10 @@ set -a
 source "$HOME/.env.local"
 set +a
 
-TOKENIZER_NAME=$(basename "${NANOCHAT_TOKENIZER_DIR%/}")
-export RUN_NAME="${TOKENIZER_NAME}_d${DEPTH}_s${SEED}"
+TOKENIZER_PATH=${NANOCHAT_TOKENIZER_DIR%/}
+VOCAB_SIZE=$(basename "$TOKENIZER_PATH")
+TOKENIZER_FAMILY=$(basename "$(dirname "$TOKENIZER_PATH")")
+export RUN_NAME="baseline_${TOKENIZER_FAMILY}_vocab_${VOCAB_SIZE}_d${DEPTH}_s${SEED}"
 
 export GPUS_PER_NODE=4
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
