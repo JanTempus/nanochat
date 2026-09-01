@@ -13,7 +13,12 @@
 set -euo pipefail
 
 # Usage:
-#   sbatch --time=HH:MM:SS sbatch_files/single_train.sbatch /path/to/tokenizer SEED
+#   sbatch --time=HH:MM:SS sbatch_files/single_train.sbatch /path/to/tokenizer SEED TAG
+
+if (( $# != 3 )); then
+    echo "Usage: sbatch $0 /path/to/tokenizer SEED TAG" >&2
+    exit 2
+fi
 
 export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS=1
@@ -23,7 +28,6 @@ export VENV_DIR="$REPO_DIR/.venv"
 export NANOCHAT_BASE_DIR="/iopsstor/scratch/cscs/jtempus/.cache/nanochat"
 
 export DEPTH=24
-export SEED="$2"
 export DEVICE_BATCH_SIZE=16
 export TARGET_PDR=10.5
 export DATASET_SHARDS=170
@@ -49,8 +53,28 @@ set +a
 # directory leaf is the tokenizer name (for example, lp_8192_bias).
 TOKENIZER_PATH=${1%/}
 TOKENIZER_NAME=$(basename "$TOKENIZER_PATH")
+TOKENIZER_PARENT=$(basename "$(dirname "$TOKENIZER_PATH")")
+export SEED="$2"
+RUN_TAG=$3
+
+if [[ ! "$RUN_TAG" =~ ^[[:alnum:]_.-]+$ ]]; then
+    echo "TAG must contain only letters, numbers, dots, underscores, or hyphens: $RUN_TAG" >&2
+    exit 2
+fi
+
+# Rounded tokenizers use .../vocab_8192/lp_8192_bias, while baseline
+# tokenizers can use .../basic_bpe/8192. Support both layouts.
+if [[ "$TOKENIZER_PARENT" =~ ^vocab_([0-9]+)$ ]]; then
+    VOCAB_SIZE=${BASH_REMATCH[1]}
+elif [[ "$TOKENIZER_NAME" =~ (^|_)([0-9]+)($|_) ]]; then
+    VOCAB_SIZE=${BASH_REMATCH[2]}
+else
+    echo "Could not infer vocabulary size from tokenizer path: $TOKENIZER_PATH" >&2
+    exit 2
+fi
+
 export NANOCHAT_TOKENIZER_DIR="$TOKENIZER_PATH"
-export RUN_NAME="baseline_${TOKENIZER_NAME}_d${DEPTH}_s${SEED}"
+export RUN_NAME="${RUN_TAG}_${VOCAB_SIZE}_d${DEPTH}_s${SEED}"
 
 export GPUS_PER_NODE=4
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
@@ -62,6 +86,8 @@ echo "GPUs:      $((SLURM_NNODES * GPUS_PER_NODE))"
 echo "Seed:      $SEED"
 echo "Tokenizer: $NANOCHAT_TOKENIZER_DIR"
 echo "Tok name:  $TOKENIZER_NAME"
+echo "Run tag:   $RUN_TAG"
+echo "Vocab:     $VOCAB_SIZE"
 echo "W&B run:   $RUN_NAME"
 echo "Model tag: $RUN_NAME"
 
