@@ -34,7 +34,7 @@ export DATASET_SHARDS=170
 
 export MATRIX_LR=0.020
 export WEIGHT_DECAY=0.28
-export EMBEDDING_LR=0.50
+export EMBEDDING_LR=0.30
 export UNEMBEDDING_LR=0.016
 export SCALAR_LR=0.50
 export WARMUP_STEPS=40
@@ -147,14 +147,6 @@ srun \
             --run="$RUN_NAME" \
             --model-tag="$RUN_NAME" \
             --fix-vocab-size-compute \
-            --matrix-lr="$MATRIX_LR" \
-            --weight-decay="$WEIGHT_DECAY" \
-            --embedding-lr="$EMBEDDING_LR" \
-            --unembedding-lr="$UNEMBEDDING_LR" \
-            --scalar-lr="$SCALAR_LR" \
-            --warmup-steps="$WARMUP_STEPS" \
-            --warmdown-ratio="$WARMDOWN_RATIO" \
-            --final-lr-frac="$FINAL_LR_FRAC" \
             --eval-every=200 \
             --sample-every=-1 \
             --save-every=-1
