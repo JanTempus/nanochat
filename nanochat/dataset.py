@@ -24,7 +24,12 @@ BASE_URL = "https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resol
 MAX_SHARD = 6542 # the last datashard is shard_06542.parquet
 index_to_filename = lambda index: f"shard_{index:05d}.parquet" # format of the filenames
 base_dir = get_base_dir()
-DATA_DIR = os.path.join(base_dir, "base_data_climbmix")
+
+def configure_dataset(fineweb=False):
+    global DATA_DIR
+    DATA_DIR = os.path.join(base_dir, "base_data_fineweb" if fineweb else "base_data_climbmix")
+
+configure_dataset()
 
 # -----------------------------------------------------------------------------
 # These functions are useful utilities to other modules, can/should be imported
@@ -35,7 +40,7 @@ def list_parquet_files(data_dir=None, warn_on_legacy=False):
 
     # Legacy-supporting code due to the upgrade from FinewebEdu-100B to ClimbMix-400B
     # This code will eventually be deleted.
-    if not os.path.exists(data_dir):
+    if data_dir == os.path.join(base_dir, "base_data_climbmix") and not os.path.exists(data_dir):
         if warn_on_legacy:
             print()
             print("=" * 80)
@@ -81,6 +86,40 @@ def parquets_iter_batched(split, start=0, step=1):
             yield texts
 
 # -----------------------------------------------------------------------------
+def _fineweb_batches(split):
+    """Mix English and every FineWeb2 language/script equally by document count."""
+    from datasets import get_dataset_config_names, interleave_datasets, load_dataset
+
+    english = load_dataset("HuggingFaceFW/fineweb", name="default", split="train", streaming=True).select_columns(["text"])
+    english = english.skip(1024) if split == "train" else english.take(1024)
+    sources = [english] + [
+        load_dataset("HuggingFaceFW/fineweb-2", name=name, split="train" if split == "train" else "test", streaming=True).select_columns(["text"])
+        for name in sorted(get_dataset_config_names("HuggingFaceFW/fineweb-2"))
+    ]
+    mixed = interleave_datasets(sources, stopping_strategy="all_exhausted")
+    mixed = mixed.shuffle(seed=42, buffer_size=10_000)
+    for batch in mixed.iter(batch_size=1024):
+        yield batch["text"]
+
+
+def download_fineweb(num_train_shards, chars_per_shard=250_000_000):
+    """Prepare mixed local shards, with a separate, fixed validation shard."""
+    import pyarrow as pa
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    for split, indices in [("val", [MAX_SHARD]), ("train", range(num_train_shards))]:
+        batches = _fineweb_batches(split)
+        for index in indices:
+            texts, nchars = [], 0
+            while nchars < chars_per_shard:
+                batch = next(batches)
+                texts.extend(batch)
+                nchars += sum(map(len, batch))
+            filepath = os.path.join(DATA_DIR, index_to_filename(index))
+            pq.write_table(pa.table({"text": texts}), filepath, row_group_size=1024, compression="zstd", compression_level=3, use_dictionary=False, write_statistics=False)
+            print(f"Wrote {filepath} ({len(texts):,} documents, {nchars:,} characters)")
+
+
 def download_single_file(index):
     """ Downloads a single file index, with some backoff """
 
@@ -137,14 +176,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download pretraining dataset shards")
     parser.add_argument("-n", "--num-files", type=int, default=-1, help="Number of train shards to download (default: -1), -1 = disable")
     parser.add_argument("-w", "--num-workers", type=int, default=4, help="Number of parallel download workers (default: 4)")
+    parser.add_argument("--fineweb", action="store_true", help="Prepare an equal-document mix of FineWeb and all FineWeb2 languages")
     args = parser.parse_args()
+    configure_dataset(args.fineweb)
+
+    num_train_shards = MAX_SHARD if args.num_files == -1 else min(args.num_files, MAX_SHARD)
+    if args.fineweb:
+        download_fineweb(num_train_shards)
+        raise SystemExit
 
     # Prepare the output directory
     os.makedirs(DATA_DIR, exist_ok=True)
 
     # The way this works is that the user specifies the number of train shards to download via the -n flag.
     # In addition to that, the validation shard is *always* downloaded and is pinned to be the last shard.
-    num_train_shards = MAX_SHARD if args.num_files == -1 else min(args.num_files, MAX_SHARD)
     ids_to_download = list(range(num_train_shards))
     ids_to_download.append(MAX_SHARD) # always download the validation shard
 
