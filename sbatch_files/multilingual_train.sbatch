@@ -98,7 +98,7 @@ else
     echo "token_bytes.pt already exists; skipping generation"
 fi
 
-DATASET_DIR="$NANOCHAT_BASE_DIR/base_data_fineweb"
+DATASET_DIR="$NANOCHAT_BASE_DIR/base_data_fineweb_10lang"
 echo "Checking/preparing $DATASET_SHARDS training shards and validation data in $DATASET_DIR"
 srun \
     --nodes=1 \

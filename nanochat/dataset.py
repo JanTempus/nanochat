@@ -10,10 +10,12 @@ For details of how the dataset was prepared, see `repackage_data_reference.py`.
 import os
 import argparse
 import random
+import re
 import time
 import requests
 import pyarrow.parquet as pq
 from contextlib import ExitStack, closing
+from email.utils import parsedate_to_datetime
 from functools import lru_cache
 from itertools import islice
 from filelock import FileLock
@@ -30,9 +32,22 @@ MAX_SHARD = 6542 # the last datashard is shard_06542.parquet
 index_to_filename = lambda index: f"shard_{index:05d}.parquet" # format of the filenames
 base_dir = get_base_dir()
 
+FINEWEB2_LANGUAGES = (
+    "arb_Arab",  # Arabic
+    "cmn_Hani",  # Mandarin Chinese
+    "fra_Latn",  # French
+    "hin_Deva",  # Hindi
+    "rus_Cyrl",  # Russian
+    "swh_Latn",  # Swahili
+    "tel_Telu",  # Telugu
+    "tha_Thai",  # Thai
+    "tur_Latn",  # Turkish
+)
+
 def configure_dataset(fineweb=False):
     global DATA_DIR
-    DATA_DIR = os.path.join(base_dir, "base_data_fineweb" if fineweb else "base_data_climbmix")
+    # Keep the ten-language mix separate from previously prepared all-language shards.
+    DATA_DIR = os.path.join(base_dir, "base_data_fineweb_10lang" if fineweb else "base_data_climbmix")
 
 configure_dataset()
 
@@ -91,13 +106,54 @@ def parquets_iter_batched(split, start=0, step=1):
             yield texts
 
 # -----------------------------------------------------------------------------
+def _hf_retry(operation, *args, **kwargs):
+    """Retry rate-limited Hub metadata calls without restarting document streams."""
+    from huggingface_hub.errors import HfHubHTTPError, LocalEntryNotFoundError
+
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        try:
+            return operation(*args, **kwargs)
+        except (HfHubHTTPError, LocalEntryNotFoundError) as error:
+            # DatasetCard.load can wrap a failed HEAD request in a cache miss.
+            cause = error.__cause__ if isinstance(error, LocalEntryNotFoundError) else error
+            response = cause.response if isinstance(cause, HfHubHTTPError) else None
+            if response is None or response.status_code != 429:
+                raise
+            if attempt == 0:
+                print("Hugging Face rate limit reached. Ensure HF_TOKEN or a saved `hf auth login` "
+                      "is available inside the download job, and HF_HUB_DISABLE_IMPLICIT_TOKEN is unset.",
+                      flush=True)
+            if attempt == max_attempts - 1:
+                raise
+            # Older huggingface_hub versions do not retry these API calls.
+            # Respect both HTTP Retry-After and the Hub's RateLimit reset time.
+            delays = []
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    delays.append(float(retry_after))
+                except ValueError:
+                    try:
+                        delays.append(parsedate_to_datetime(retry_after).timestamp() - time.time())
+                    except (TypeError, ValueError, OverflowError):
+                        pass
+            resets = re.findall(r'(?:^|;)\s*t=(\d+)', response.headers.get("RateLimit", ""))
+            delays.extend(float(reset) for reset in resets)
+            delays = [delay for delay in delays if 0 <= delay < float("inf")]
+            wait_time = max(delays) + 1 if delays else min(60 * 2 ** attempt, 300)
+            print(f"Hugging Face HTTP 429; retrying in {wait_time:.0f}s "
+                  f"(attempt {attempt + 2}/{max_attempts})", flush=True)
+            time.sleep(wait_time)
+
+
 @lru_cache(maxsize=2)
 def _fineweb_configs(repo_id):
     """Read the small dataset card once, without resolving every data file."""
     from huggingface_hub import DatasetCard
 
     print(f"Reading source metadata: {repo_id}", flush=True)
-    configs = DatasetCard.load(repo_id, repo_type="dataset").data.configs
+    configs = _hf_retry(DatasetCard.load, repo_id, repo_type="dataset").data.configs
     return {config["config_name"]: config["data_files"] for config in configs}
 
 
@@ -114,7 +170,7 @@ def _fineweb_texts(repo_id, data_files, split, english=False):
         paths = [paths] if isinstance(paths, str) else paths
         for path in paths:
             print(f"Streaming {repo_id}/{path} ({split})", flush=True)
-            files = sorted(fs.glob(f"datasets/{repo_id}/{path}"))
+            files = sorted(_hf_retry(fs.glob, f"datasets/{repo_id}/{path}"))
             for filename in files:
                 if not filename.endswith(".parquet"):
                     continue
@@ -155,7 +211,7 @@ def _fineweb_source(repo_id, data_files, split, english=False):
 
 
 def _fineweb_batches(split):
-    """Mix equal blocks of documents from English and every FineWeb2 language."""
+    """Mix equal blocks from English FineWeb and the nine selected FineWeb2 languages."""
     english_configs = _fineweb_configs("HuggingFaceFW/fineweb")
     # Resolve one crawl at a time, rather than globbing the entire English corpus.
     english_files = [
@@ -166,11 +222,13 @@ def _fineweb_batches(split):
     if not english_files:
         raise RuntimeError("No FineWeb crawl configurations found")
     configs = _fineweb_configs("HuggingFaceFW/fineweb-2")
-    if not configs:
-        raise RuntimeError("No FineWeb2 language configurations found")
+    missing = sorted(set(FINEWEB2_LANGUAGES) - configs.keys())
+    if missing:
+        raise RuntimeError(f"Missing requested FineWeb2 language configurations: {', '.join(missing)}")
     sources = [_fineweb_source("HuggingFaceFW/fineweb", english_files, split, english=True)]
-    sources.extend(_fineweb_source("HuggingFaceFW/fineweb-2", configs[name], split) for name in sorted(configs))
-    print(f"Preparing {split}: English + {len(configs)} FineWeb2 languages", flush=True)
+    sources.extend(_fineweb_source("HuggingFaceFW/fineweb-2", configs[name], split) for name in sorted(FINEWEB2_LANGUAGES))
+    print(f"Preparing {split}: English + {len(FINEWEB2_LANGUAGES)} FineWeb2 languages "
+          f"({', '.join(FINEWEB2_LANGUAGES)})", flush=True)
     rng = random.Random(42)
     rng.shuffle(sources)
     # A small equal-sized block per source avoids opening every language before
@@ -320,7 +378,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download pretraining dataset shards")
     parser.add_argument("-n", "--num-files", type=int, default=-1, help="Number of train shards to download (default: -1), -1 = disable")
     parser.add_argument("-w", "--num-workers", type=int, default=4, help="Number of parallel download workers (default: 4)")
-    parser.add_argument("--fineweb", action="store_true", help="Prepare an equal-document mix of FineWeb and all FineWeb2 languages")
+    parser.add_argument("--fineweb", action="store_true", help="Prepare an equal-document mix of English FineWeb and nine selected FineWeb2 languages")
     parser.add_argument("--chars-per-shard", type=int, default=250_000_000, help="Characters per prepared FineWeb shard (default: 250000000)")
     args = parser.parse_args()
     if args.num_files < -1 or args.chars_per_shard <= 0:
