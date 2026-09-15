@@ -99,20 +99,16 @@ else
 fi
 
 DATASET_DIR="$NANOCHAT_BASE_DIR/base_data_fineweb"
-if [[ ! -d "$DATASET_DIR" ]]; then
-    echo "Dataset directory not found; downloading to $DATASET_DIR"
-    srun \
-        --nodes=1 \
-        --ntasks=1 \
-        --environment=nano_distributed \
-        bash -c '
-            source "$VENV_DIR/bin/activate"
-            cd "$REPO_DIR"
-            python -m nanochat.dataset --fineweb -n "$DATASET_SHARDS"
-        '
-else
-    echo "Dataset directory already exists; skipping download: $DATASET_DIR"
-fi
+echo "Checking/preparing $DATASET_SHARDS training shards and validation data in $DATASET_DIR"
+srun \
+    --nodes=1 \
+    --ntasks=1 \
+    --environment=nano_distributed \
+    bash -c '
+        source "$VENV_DIR/bin/activate"
+        cd "$REPO_DIR"
+        python -u -m nanochat.dataset --fineweb -n "$DATASET_SHARDS"
+    '
 
 
 srun \
