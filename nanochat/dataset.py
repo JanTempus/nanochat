@@ -9,12 +9,16 @@ For details of how the dataset was prepared, see `repackage_data_reference.py`.
 
 import os
 import argparse
+import hashlib
+import json
 import random
 import re
+import tempfile
 import time
 import requests
 import pyarrow.parquet as pq
-from contextlib import ExitStack, closing
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from email.utils import parsedate_to_datetime
 from functools import lru_cache
 from itertools import islice
@@ -43,6 +47,27 @@ FINEWEB2_LANGUAGES = (
     "tha_Thai",  # Thai
     "tur_Latn",  # Turkish
 )
+FINEWEB_CHECKPOINT_KEY = b"nanochat.fineweb.checkpoint"
+
+
+def _atomic_json(path, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=os.path.dirname(path), delete=False) as handle:
+            temp_path = handle.name
+            json.dump(value, handle, separators=(",", ":"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def _read_json(path):
+    with open(path) as handle:
+        return json.load(handle)
 
 def configure_dataset(fineweb=False):
     global DATA_DIR
@@ -148,71 +173,54 @@ def _hf_retry(operation, *args, **kwargs):
 
 
 @lru_cache(maxsize=2)
-def _fineweb_configs(repo_id):
+def _fineweb_configs(repo_id, revision=None):
     """Read the small dataset card once, without resolving every data file."""
     from huggingface_hub import DatasetCard
 
     print(f"Reading source metadata: {repo_id}", flush=True)
-    configs = _hf_retry(DatasetCard.load, repo_id, repo_type="dataset").data.configs
+    card_path = _fineweb_local_file(repo_id, revision, "README.md") if revision else repo_id
+    configs = _hf_retry(DatasetCard.load, card_path, repo_type="dataset").data.configs
     return {config["config_name"]: config["data_files"] for config in configs}
 
 
-def _fineweb_texts(repo_id, data_files, split, english=False):
-    """Open only the requested split, and only when its first text is needed."""
+def _fineweb_local_file(repo_id, revision, filename):
+    """Use complete cached files offline; let the Hub resume unfinished downloads."""
+    from huggingface_hub import hf_hub_download, try_to_load_from_cache
+
+    kwargs = dict(repo_type="dataset", revision=revision, cache_dir=os.path.join(base_dir, "fineweb_source_cache"))
+    cached = try_to_load_from_cache(repo_id, filename, **kwargs)
+    if isinstance(cached, str):
+        return cached
+    print(f"Downloading source file: {repo_id}/{filename}", flush=True)
+    return _hf_retry(hf_hub_download, repo_id, filename, **kwargs)
+
+
+@lru_cache(maxsize=128)
+def _fineweb_files(repo_id, revision, pattern, cache_dir):
+    """Persist file listings for immutable source revisions, one crawl at a time."""
     from huggingface_hub import HfFileSystem
 
+    key = hashlib.sha256(json.dumps([repo_id, revision, pattern]).encode()).hexdigest()
+    path = os.path.join(cache_dir, "listings", key + ".json")
+    if os.path.isfile(path):
+        return _read_json(path)
     fs = HfFileSystem()
-    remote_split = "train" if english or split == "train" else "test"
-    for entry in data_files:
-        if entry["split"] != remote_split:
-            continue
-        paths = entry["path"]
-        paths = [paths] if isinstance(paths, str) else paths
-        for path in paths:
-            print(f"Streaming {repo_id}/{path} ({split})", flush=True)
-            files = sorted(_hf_retry(fs.glob, f"datasets/{repo_id}/{path}"))
-            for filename in files:
-                if not filename.endswith(".parquet"):
-                    continue
-                # Bound each source's read cache and avoid background Arrow
-                # readers remaining active when a partially read stream closes.
-                with fs.open(filename, "rb", block_size=256 * 1024) as handle:
-                    with pq.ParquetFile(handle) as parquet:
-                        for batch in parquet.iter_batches(batch_size=32, columns=["text"], use_threads=False):
-                            yield from batch.column("text").to_pylist()
+    paths = _hf_retry(fs.glob, f"datasets/{repo_id}@{revision}/{pattern}")
+    files = [fs.resolve_path(name).path_in_repo for name in sorted(paths) if name.endswith(".parquet")]
+    _atomic_json(path, files)
+    return files
 
 
-def _fineweb_source(repo_id, data_files, split, english=False):
-    # Restart smaller languages to retain equal sampling by document count.
-    while True:
-        nonempty = False
-        cached = []
-        with closing(_fineweb_texts(repo_id, data_files, split, english)) as texts:
-            selected = texts
-            if english:
-                selected = islice(texts, 1024, None) if split == "train" else islice(texts, 1024)
-            for text in selected:
-                if isinstance(text, str) and text:
-                    nonempty = True
-                    if cached is not None:
-                        if len(cached) < 32:
-                            cached.append(text)
-                        else:
-                            cached = None
-                    yield text
-        if not nonempty:
-            print(f"Skipping empty {split} source in {repo_id}: {data_files}", flush=True)
-            return
-        # Some language splits contain only a handful of documents. Reuse those
-        # texts instead of fetching the same remote file many times per batch.
-        if cached is not None:
-            while True:
-                yield from cached
+def _fineweb_catalog():
+    from huggingface_hub import HfApi
 
-
-def _fineweb_batches(split):
-    """Mix equal blocks from English FineWeb and the nine selected FineWeb2 languages."""
-    english_configs = _fineweb_configs("HuggingFaceFW/fineweb")
+    path = os.path.join(DATA_DIR, ".sources.json")
+    if os.path.isfile(path):
+        return _read_json(path)
+    api = HfApi()
+    revisions = {repo: _hf_retry(api.dataset_info, repo).sha
+                 for repo in ("HuggingFaceFW/fineweb", "HuggingFaceFW/fineweb-2")}
+    english_configs = _fineweb_configs("HuggingFaceFW/fineweb", revisions["HuggingFaceFW/fineweb"])
     # Resolve one crawl at a time, rather than globbing the entire English corpus.
     english_files = [
         entry
@@ -221,36 +229,182 @@ def _fineweb_batches(split):
     ]
     if not english_files:
         raise RuntimeError("No FineWeb crawl configurations found")
-    configs = _fineweb_configs("HuggingFaceFW/fineweb-2")
+    configs = _fineweb_configs("HuggingFaceFW/fineweb-2", revisions["HuggingFaceFW/fineweb-2"])
     missing = sorted(set(FINEWEB2_LANGUAGES) - configs.keys())
     if missing:
         raise RuntimeError(f"Missing requested FineWeb2 language configurations: {', '.join(missing)}")
-    sources = [_fineweb_source("HuggingFaceFW/fineweb", english_files, split, english=True)]
-    sources.extend(_fineweb_source("HuggingFaceFW/fineweb-2", configs[name], split) for name in sorted(FINEWEB2_LANGUAGES))
-    print(f"Preparing {split}: English + {len(FINEWEB2_LANGUAGES)} FineWeb2 languages "
-          f"({', '.join(FINEWEB2_LANGUAGES)})", flush=True)
-    rng = random.Random(42)
-    rng.shuffle(sources)
-    # A small equal-sized block per source avoids opening every language before
-    # writing the first batch. Shuffle each output batch to mix its languages.
-    with ExitStack() as stack:
-        for source in sources:
-            stack.enter_context(closing(source))
-        batch = []
-        while sources:
-            active_sources = []
-            for source in sources:
-                texts = list(islice(source, 32))
-                if not texts:
+    sources = [{"repo_id": "HuggingFaceFW/fineweb", "language": "english", "data_files": english_files}]
+    sources.extend({"repo_id": "HuggingFaceFW/fineweb-2", "language": name, "data_files": configs[name]}
+                   for name in sorted(FINEWEB2_LANGUAGES))
+    for source in sources:
+        source["revision"] = revisions[source["repo_id"]]
+    _atomic_json(path, sources)
+    return sources
+
+
+class _FinewebReader:
+    """A local Parquet reader with a serializable position within a language."""
+
+    def __init__(self, spec, split, state=None):
+        self.spec, self.split = spec, split
+        self.english = spec["language"] == "english"
+        remote_split = "train" if self.english or split == "train" else "test"
+        self.patterns = [path for entry in spec["data_files"] if entry["split"] == remote_split
+                         for path in ([entry["path"]] if isinstance(entry["path"], str) else entry["path"])]
+        self.state = dict(state) if state is not None else self._initial_state()
+        self.parquet = self.batches = None
+        self.buffer = []
+        self.buffer_index = 0
+
+    @staticmethod
+    def _initial_state():
+        return dict(pattern=0, file=0, row_group=0, row=0, raw_seen=0, emitted=0, exhausted=False)
+
+    def close(self):
+        self.batches = None
+        self.buffer = []
+        self.buffer_index = 0
+        if self.parquet is not None:
+            self.parquet.close()
+            self.parquet = None
+
+    def _raw_text(self):
+        state = self.state
+        while state["pattern"] < len(self.patterns):
+            if self.english and self.split == "val" and state["raw_seen"] >= 1024:
+                return None
+            if self.parquet is None:
+                files = _fineweb_files(self.spec["repo_id"], self.spec["revision"], self.patterns[state["pattern"]],
+                                       os.path.join(base_dir, "fineweb_source_cache"))
+                if state["file"] >= len(files):
+                    state.update(pattern=state["pattern"] + 1, file=0, row_group=0, row=0)
                     continue
-                active_sources.append(source)
-                batch.extend(texts)
-                if len(batch) == 1024:
-                    rng.shuffle(batch)
-                    yield batch
-                    batch = []
-            sources = active_sources
-        raise RuntimeError(f"No usable {split} documents in FineWeb or FineWeb2")
+                path = _fineweb_local_file(self.spec["repo_id"], self.spec["revision"], files[state["file"]])
+                self.parquet = pq.ParquetFile(path)
+            if state["row_group"] >= self.parquet.num_row_groups:
+                self.close()
+                state.update(file=state["file"] + 1, row_group=0, row=0)
+                continue
+            if state["row"] >= self.parquet.metadata.row_group(state["row_group"]).num_rows:
+                state.update(row_group=state["row_group"] + 1, row=0)
+                self.batches = None
+                self.buffer = []
+                self.buffer_index = 0
+                continue
+            if self.buffer_index == len(self.buffer):
+                skip = 0
+                if self.batches is None:
+                    self.batches = self.parquet.iter_batches(batch_size=1024, row_groups=[state["row_group"]],
+                                                            columns=["text"], use_threads=False)
+                    skip = state["row"]
+                # Resume skips whole row groups using metadata and decodes only
+                # the current row group's prefix, without rereading older files.
+                batch = next(self.batches)
+                while skip >= len(batch):
+                    skip -= len(batch)
+                    batch = next(self.batches)
+                self.buffer = batch.column("text").slice(skip).to_pylist()
+                self.buffer_index = 0
+            text = self.buffer[self.buffer_index]
+            self.buffer_index += 1
+            state["row"] += 1
+            state["raw_seen"] += 1
+            # Return a tuple so null text is distinct from end of source.
+            return (text,)
+        return None
+
+    def read_block(self):
+        texts = []
+        while len(texts) < 32 and not self.state["exhausted"]:
+            row = self._raw_text()
+            if row is None:
+                emitted = self.state["emitted"]
+                self.close()
+                self.state = self._initial_state()
+                if not emitted:
+                    self.state["exhausted"] = True
+                    print(f"Skipping empty {self.split} source: {self.spec['language']}", flush=True)
+                continue
+            if self.english and self.split == "train" and self.state["raw_seen"] <= 1024:
+                continue
+            text = row[0]
+            if isinstance(text, str) and text:
+                texts.append(text)
+                self.state["emitted"] += 1
+        return texts, dict(self.state)
+
+
+class _FinewebMixer:
+    """Prefetch one block per language; commit positions in deterministic order."""
+
+    def __init__(self, split, num_workers=4, state=None):
+        if num_workers < 1:
+            raise ValueError("num_workers must be positive")
+        if state is not None and (state["version"] != 1 or state["split"] != split):
+            raise ValueError("Incompatible FineWeb checkpoint")
+        self.split = split
+        self.catalog = state["catalog"] if state is not None else _fineweb_catalog()
+        if [spec["language"] for spec in self.catalog] != ["english", *sorted(FINEWEB2_LANGUAGES)]:
+            raise ValueError("FineWeb source catalog does not match the selected languages")
+        self.rng = random.Random(42)
+        self.order = list(range(len(self.catalog)))
+        self.rng.shuffle(self.order)
+        self.next_source = 0
+        self.committed = [_FinewebReader._initial_state() for _ in self.catalog]
+        if state is not None:
+            self.order = list(state["order"])
+            self.next_source = state["next_source"]
+            rng_state = state["rng"]
+            self.rng.setstate((rng_state[0], tuple(rng_state[1]), rng_state[2]))
+            self.committed = deepcopy(state["readers"])
+        self.readers = [_FinewebReader(spec, split, position) for spec, position in zip(self.catalog, self.committed)]
+        self.executor = ThreadPoolExecutor(max_workers=min(num_workers, len(self.catalog)), thread_name_prefix="fineweb")
+        self.pending = {}
+        self.closed = False
+        print(f"Preparing {split}: English + {len(FINEWEB2_LANGUAGES)} FineWeb2 languages, "
+              f"{min(num_workers, len(self.catalog))} download/read workers", flush=True)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.closed:
+            raise StopIteration
+        if not self.pending:
+            for index in self.order:
+                self.pending[index] = self.executor.submit(self.readers[index].read_block)
+        batch = []
+        while self.order:
+            index = self.order[self.next_source]
+            texts, position = self.pending.pop(index).result()
+            self.committed[index] = position
+            if not texts:
+                self.order.pop(self.next_source)
+                if self.order:
+                    self.next_source %= len(self.order)
+                continue
+            self.pending[index] = self.executor.submit(self.readers[index].read_block)
+            self.next_source = (self.next_source + 1) % len(self.order)
+            batch.extend(texts)
+            if len(batch) == 1024:
+                self.rng.shuffle(batch)
+                return batch
+        raise RuntimeError(f"No usable {self.split} documents in FineWeb or FineWeb2")
+
+    def state_dict(self):
+        return deepcopy(dict(version=1, split=self.split, catalog=self.catalog, order=self.order,
+                             next_source=self.next_source, rng=self.rng.getstate(), readers=self.committed))
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            self.executor.shutdown(wait=True, cancel_futures=True)
+            for reader in self.readers:
+                reader.close()
+
+
+def _fineweb_batches(split, num_workers=4, state=None):
+    return _FinewebMixer(split, num_workers, state)
 
 
 def download_fineweb(num_train_shards, chars_per_shard=250_000_000):
