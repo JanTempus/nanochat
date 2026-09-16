@@ -39,6 +39,8 @@ set -a
 source "$HOME/.env.local"
 set +a
 
+export DATASET_WORKERS="${DATASET_WORKERS:-8}"
+
 # Resolve the submitted path after loading environment defaults so the command-
 # line selection wins over any NANOCHAT_TOKENIZER_DIR value in .env.local. The
 # directory leaf is the tokenizer name (for example, lp_8192_bias).
@@ -107,7 +109,7 @@ srun \
     bash -c '
         source "$VENV_DIR/bin/activate"
         cd "$REPO_DIR"
-        python -u -m nanochat.dataset --fineweb -n "$DATASET_SHARDS"
+        python -u -m nanochat.dataset --fineweb -n "$DATASET_SHARDS" -w "$DATASET_WORKERS"
     '
 
 

@@ -21,7 +21,6 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from email.utils import parsedate_to_datetime
 from functools import lru_cache
-from itertools import islice
 from filelock import FileLock
 from multiprocessing import Pool
 
@@ -338,8 +337,8 @@ class _FinewebMixer:
     """Prefetch one block per language; commit positions in deterministic order."""
 
     def __init__(self, split, num_workers=4, state=None):
-        if num_workers < 1:
-            raise ValueError("num_workers must be positive")
+        if num_workers < 1 or split not in ("train", "val"):
+            raise ValueError("num_workers must be positive and split must be train or val")
         if state is not None and (state["version"] != 1 or state["split"] != split):
             raise ValueError("Incompatible FineWeb checkpoint")
         self.split = split
@@ -407,47 +406,97 @@ def _fineweb_batches(split, num_workers=4, state=None):
     return _FinewebMixer(split, num_workers, state)
 
 
-def download_fineweb(num_train_shards, chars_per_shard=250_000_000):
+def _fineweb_shard_record(filepath, cached=None):
+    import pyarrow as pa
+
+    try:
+        info = os.stat(filepath)
+        signature = dict(size=info.st_size, mtime_ns=info.st_mtime_ns)
+        if (cached is not None and cached.get("rows", 0) > 0 and "checkpoint" in cached
+                and all(cached.get(key) == value for key, value in signature.items())):
+            return cached
+        with pq.ParquetFile(filepath) as parquet:
+            if parquet.metadata.num_rows == 0 or "text" not in parquet.schema_arrow.names:
+                return None
+            metadata = parquet.metadata.metadata or {}
+            checkpoint = json.loads(metadata[FINEWEB_CHECKPOINT_KEY]) if FINEWEB_CHECKPOINT_KEY in metadata else None
+            return dict(**signature, rows=parquet.metadata.num_rows, checkpoint=checkpoint)
+    except (OSError, pa.ArrowInvalid):
+        return None
+
+
+def download_fineweb(num_train_shards, chars_per_shard=250_000_000, num_workers=4):
     """Prepare mixed local shards, with a separate, fixed validation shard."""
     import pyarrow as pa
 
-    if not 0 <= num_train_shards <= MAX_SHARD or chars_per_shard <= 0:
-        raise ValueError("Invalid number of training shards or characters per shard")
+    if not 0 <= num_train_shards <= MAX_SHARD or chars_per_shard <= 0 or num_workers < 1:
+        raise ValueError("Invalid number of training shards, characters per shard, or workers")
     os.makedirs(DATA_DIR, exist_ok=True)
     print(f"Preparing {num_train_shards} training shards and 1 validation shard in {DATA_DIR}", flush=True)
     with FileLock(os.path.join(DATA_DIR, ".download.lock")):
+        manifest_path = os.path.join(DATA_DIR, ".manifest.json")
+        try:
+            manifest = _read_json(manifest_path)
+        except (FileNotFoundError, json.JSONDecodeError):
+            manifest = {}
+        manifest_changed = manifest.get("version") != 1
+        if manifest_changed:
+            manifest = dict(version=1, shards={})
         schema = pa.schema([("text", pa.string())])
         for split, indices in [("val", [MAX_SHARD]), ("train", range(num_train_shards))]:
-            # Check actual Parquet footers. An empty directory or interrupted file
-            # must never count as a completed download.
             completed = {}
             for index in indices:
-                filepath = os.path.join(DATA_DIR, index_to_filename(index))
-                if os.path.isfile(filepath):
-                    try:
-                        with pq.ParquetFile(filepath) as parquet:
-                            if parquet.metadata.num_rows > 0 and "text" in parquet.schema_arrow.names:
-                                completed[index] = parquet.metadata.num_rows
-                    except (OSError, pa.ArrowInvalid):
-                        pass
+                filename = index_to_filename(index)
+                cached = manifest["shards"].get(filename)
+                record = _fineweb_shard_record(os.path.join(DATA_DIR, filename), cached)
+                if record is not None:
+                    completed[index] = record
+                    manifest["shards"][filename] = record
+                    manifest_changed |= record is not cached
+                else:
+                    manifest["shards"].pop(filename, None)
+                    manifest_changed |= cached is not None
+            if manifest_changed:
+                _atomic_json(manifest_path, manifest)
+                manifest_changed = False
             if len(completed) == len(indices):
                 print(f"All {split} shards already exist; skipping", flush=True)
                 continue
+            for index, record in completed.items():
+                checkpoint = record["checkpoint"]
+                if checkpoint is not None and (checkpoint["version"] != 1 or checkpoint["chars_per_shard"] != chars_per_shard):
+                    raise ValueError(f"Cannot resume {index_to_filename(index)}: use the original --chars-per-shard value")
             last_missing = max(index for index in indices if index not in completed)
-            with closing(_fineweb_batches(split)) as batches:
+            batches = None
+            next_state = None
+            try:
                 for index in indices:
                     if index > last_missing:
                         break
-                    filepath = os.path.join(DATA_DIR, index_to_filename(index))
+                    filename = index_to_filename(index)
+                    filepath = os.path.join(DATA_DIR, filename)
                     if index in completed:
-                        # Advance the deterministic stream so a resumed shard does not
-                        # duplicate documents from earlier shards.
-                        print(f"Skipping {filepath}; advancing past {completed[index]:,} documents", flush=True)
-                        remaining = completed[index]
-                        while remaining > 0:
-                            remaining -= len(next(batches))
-                        if remaining != 0:
-                            raise RuntimeError(f"Cannot resume {filepath}: incompatible batch boundaries")
+                        checkpoint = completed[index]["checkpoint"]
+                        if checkpoint is not None:
+                            if batches is not None:
+                                batches.close()
+                                batches = None
+                            next_state = checkpoint["state"]
+                            print(f"Skipping {filepath}; restored saved source positions", flush=True)
+                            continue
+                    if batches is None:
+                        batches = _fineweb_batches(split, num_workers=num_workers, state=next_state)
+                    if index in completed:
+                        # Old shards predate checkpoints. Verify their deterministic
+                        # stream once and persist the recovered position for future runs.
+                        print(f"Indexing legacy shard {filepath} once to save its source positions", flush=True)
+                        with pq.ParquetFile(filepath) as parquet:
+                            for batch in parquet.iter_batches(batch_size=1024, columns=["text"], use_threads=False):
+                                if batch.column("text").to_pylist() != next(batches):
+                                    raise RuntimeError(f"Cannot resume {filepath}: legacy data differs from the source mix")
+                        checkpoint = dict(version=1, chars_per_shard=chars_per_shard, state=batches.state_dict())
+                        manifest["shards"][filename]["checkpoint"] = checkpoint
+                        _atomic_json(manifest_path, manifest)
                         continue
                     temp_path = filepath + ".tmp"
                     nchars = ndocs = 0
@@ -467,12 +516,21 @@ def download_fineweb(num_train_shards, chars_per_shard=250_000_000):
                                 if ndocs == len(batch) or now - last_progress >= 10:
                                     print(f"  {split} shard {index:05d}: {ndocs:,} documents, {nchars:,}/{chars_per_shard:,} characters", flush=True)
                                     last_progress = now
+                            # Commit data and its exact resume position together in
+                            # the footer, before publishing the finished shard.
+                            checkpoint = dict(version=1, chars_per_shard=chars_per_shard, state=batches.state_dict())
+                            writer.add_key_value_metadata({FINEWEB_CHECKPOINT_KEY: json.dumps(checkpoint)})
                         os.replace(temp_path, filepath)
+                        manifest["shards"][filename] = _fineweb_shard_record(filepath)
+                        _atomic_json(manifest_path, manifest)
                     except BaseException:
                         if os.path.exists(temp_path):
                             os.remove(temp_path)
                         raise
                     print(f"Wrote {filepath} ({ndocs:,} documents, {nchars:,} characters)", flush=True)
+            finally:
+                if batches is not None:
+                    batches.close()
     print(f"Done! FineWeb shards are ready in {DATA_DIR}", flush=True)
 
 
@@ -531,17 +589,17 @@ def download_single_file(index):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download pretraining dataset shards")
     parser.add_argument("-n", "--num-files", type=int, default=-1, help="Number of train shards to download (default: -1), -1 = disable")
-    parser.add_argument("-w", "--num-workers", type=int, default=4, help="Number of parallel download workers (default: 4)")
+    parser.add_argument("-w", "--num-workers", type=int, default=4, help="Parallel workers: FineWeb download/read threads or ClimbMix processes (default: 4)")
     parser.add_argument("--fineweb", action="store_true", help="Prepare an equal-document mix of English FineWeb and nine selected FineWeb2 languages")
     parser.add_argument("--chars-per-shard", type=int, default=250_000_000, help="Characters per prepared FineWeb shard (default: 250000000)")
     args = parser.parse_args()
-    if args.num_files < -1 or args.chars_per_shard <= 0:
-        parser.error("--num-files must be -1 or nonnegative; --chars-per-shard must be positive")
+    if args.num_files < -1 or args.chars_per_shard <= 0 or args.num_workers < 1:
+        parser.error("--num-files must be -1 or nonnegative; --chars-per-shard and --num-workers must be positive")
     configure_dataset(args.fineweb)
 
     num_train_shards = MAX_SHARD if args.num_files == -1 else min(args.num_files, MAX_SHARD)
     if args.fineweb:
-        download_fineweb(num_train_shards, args.chars_per_shard)
+        download_fineweb(num_train_shards, args.chars_per_shard, args.num_workers)
         raise SystemExit
 
     # Prepare the output directory
