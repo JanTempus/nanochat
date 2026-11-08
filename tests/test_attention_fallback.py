@@ -1,14 +1,14 @@
 """
-Test Flash Attention unified interface - verify FA3 and SDPA produce identical results.
+Test Flash Attention unified interface - verify Flash Attention (FA3 or FA2) and SDPA produce identical results.
 
 Run: python -m pytest tests/test_attention_fallback.py -v -s
 
 Note on test structure:
     Tests are split into two classes due to dtype/device constraints:
 
-    1. TestFA3VsSDPA: Comparison tests that run both FA3 and SDPA on the same inputs
-       and verify they produce identical results. These require a Hopper GPU (FA3 only
-       works on sm90+) and use bfloat16 (FA3 doesn't support float32).
+    1. TestFA3VsSDPA: Comparison tests that run both Flash Attention and SDPA on the same
+       inputs and verify they produce identical results. These require FA3 (Hopper, sm90)
+       or FA2 (Ampere/Ada, sm80-sm89) and use bfloat16 (FA doesn't support float32).
 
     2. TestSDPAOnly: Tests that only exercise the SDPA fallback path. These can run
        on any device (CUDA, CPU, MPS) with the appropriate dtype for that device.
@@ -16,19 +16,19 @@ Note on test structure:
 import torch
 import pytest
 import nanochat.flash_attention as fa_module
-from nanochat.flash_attention import flash_attn, HAS_FA3
+from nanochat.flash_attention import flash_attn, HAS_FA, FA_VERSION
 from nanochat.engine import KVCache
 
 
 def set_impl(impl):
-    """Set the implementation override ('fa3', 'sdpa', or None for auto) and re-resolve USE_FA3."""
+    """Set the implementation override ('fa', 'sdpa', or None for auto) and re-resolve USE_FA."""
     fa_module._override_impl = impl
-    fa_module.USE_FA3 = fa_module._resolve_use_fa3()
+    fa_module.USE_FA = fa_module._resolve_use_fa()
 
 
 def run_both_impls(fn):
     """Run a function with both FA3 and SDPA, return both outputs."""
-    set_impl('fa3')
+    set_impl('fa')
     out_fa3 = fn()
     set_impl('sdpa')
     out_sdpa = fn()
@@ -48,7 +48,7 @@ def assert_close(t1, t2, name, atol=1e-2, rtol=1e-2):
 # =============================================================================
 # FA3 vs SDPA comparison tests (require Hopper GPU)
 # =============================================================================
-@pytest.mark.skipif(not HAS_FA3, reason="FA3 required to compare implementations")
+@pytest.mark.skipif(not HAS_FA, reason="Flash Attention (FA3 or FA2) required to compare implementations")
 class TestFA3VsSDPA:
     """Compare FA3 and SDPA produce identical results. Requires Hopper GPU."""
 
@@ -229,7 +229,7 @@ class TestFA3VsSDPA:
             loss.backward()
             return y.detach(), q.grad.detach(), k.grad.detach(), v.grad.detach()
 
-        set_impl('fa3')
+        set_impl('fa')
         y_fa3, q_grad_fa3, k_grad_fa3, v_grad_fa3 = run()
         set_impl('sdpa')
         y_sdpa, q_grad_sdpa, k_grad_sdpa, v_grad_sdpa = run()
@@ -340,23 +340,23 @@ class TestSDPAOnly:
 class TestOverrideMechanism:
     """Test that the override mechanism works correctly."""
 
-    @pytest.mark.skipif(not HAS_FA3, reason="FA3 required")
-    def test_override_fa3(self):
-        """Test that override='fa3' uses FA3."""
-        set_impl('fa3')
-        assert fa_module.USE_FA3 == True
+    @pytest.mark.skipif(not HAS_FA, reason="Flash Attention required")
+    def test_override_fa(self):
+        """Test that override='fa' uses Flash Attention."""
+        set_impl('fa')
+        assert fa_module.USE_FA == True
         set_impl(None)
 
     def test_override_sdpa(self):
         """Test that override='sdpa' uses SDPA."""
         set_impl('sdpa')
-        assert fa_module.USE_FA3 == False
+        assert fa_module.USE_FA == False
         set_impl(None)
 
     def test_override_auto(self):
         """Test that override=None uses auto-detection."""
         set_impl(None)
-        assert fa_module.USE_FA3 == HAS_FA3
+        assert fa_module.USE_FA == HAS_FA
 
 
 if __name__ == "__main__":
@@ -366,7 +366,7 @@ if __name__ == "__main__":
         print(f"CUDA device: {torch.cuda.get_device_name()}")
         major, minor = torch.cuda.get_device_capability()
         print(f"Compute capability: {major}.{minor}")
-    print(f"HAS_FA3: {HAS_FA3}")
+    print(f"HAS_FA: {HAS_FA} (FA_VERSION={FA_VERSION})")
     print()
 
     pytest.main([__file__, "-v", "-s"])

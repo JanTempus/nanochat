@@ -248,6 +248,8 @@ def get_peak_flops(device_name: str) -> float:
         (["a800"], 312e12),
         (["a40"], 149.7e12),
         (["a30"], 165e12),
+        # NVIDIA Ampere workstation
+        (["a6000"], 154.8e12),
         # NVIDIA Ada data center
         (["l40s"], 362e12),
         (["l40-s"], 362e12),
