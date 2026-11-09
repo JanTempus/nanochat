@@ -68,10 +68,25 @@ def _read_json(path):
     with open(path) as handle:
         return json.load(handle)
 
-def configure_dataset(fineweb=False):
-    global DATA_DIR
+CLIMBMIX_BASE_URL = BASE_URL
+CLIMBMIX_MAX_SHARD = MAX_SHARD
+# Karpathy's original FineWeb-Edu 100B shuffle (English only); last shard is shard_01822.parquet
+FINEWEB_EDU_BASE_URL = "https://huggingface.co/datasets/karpathy/fineweb-edu-100b-shuffle/resolve/main"
+FINEWEB_EDU_MAX_SHARD = 1822
+
+def configure_dataset(fineweb=False, fineweb_edu=False):
+    global DATA_DIR, BASE_URL, MAX_SHARD
+    if fineweb and fineweb_edu:
+        raise ValueError("fineweb and fineweb_edu are mutually exclusive")
+    BASE_URL, MAX_SHARD = (FINEWEB_EDU_BASE_URL, FINEWEB_EDU_MAX_SHARD) if fineweb_edu else (CLIMBMIX_BASE_URL, CLIMBMIX_MAX_SHARD)
     # Keep the ten-language mix separate from previously prepared all-language shards.
-    DATA_DIR = os.path.join(base_dir, "base_data_fineweb_10lang" if fineweb else "base_data_climbmix")
+    if fineweb:
+        name = "base_data_fineweb_10lang"
+    elif fineweb_edu:
+        name = "base_data_fineweb_edu"
+    else:
+        name = "base_data_climbmix"
+    DATA_DIR = os.path.join(base_dir, name)
 
 configure_dataset()
 
@@ -591,11 +606,14 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num-files", type=int, default=-1, help="Number of train shards to download (default: -1), -1 = disable")
     parser.add_argument("-w", "--num-workers", type=int, default=4, help="Parallel workers: FineWeb download/read threads or ClimbMix processes (default: 4)")
     parser.add_argument("--fineweb", action="store_true", help="Prepare an equal-document mix of English FineWeb and nine selected FineWeb2 languages")
+    parser.add_argument("--fineweb-edu", action="store_true", help="Download Karpathy's fineweb-edu-100b-shuffle shards (English)")
     parser.add_argument("--chars-per-shard", type=int, default=250_000_000, help="Characters per prepared FineWeb shard (default: 250000000)")
     args = parser.parse_args()
     if args.num_files < -1 or args.chars_per_shard <= 0 or args.num_workers < 1:
         parser.error("--num-files must be -1 or nonnegative; --chars-per-shard and --num-workers must be positive")
-    configure_dataset(args.fineweb)
+    if args.fineweb and args.fineweb_edu:
+        parser.error("--fineweb and --fineweb-edu are mutually exclusive")
+    configure_dataset(args.fineweb, args.fineweb_edu)
 
     num_train_shards = MAX_SHARD if args.num_files == -1 else min(args.num_files, MAX_SHARD)
     if args.fineweb:
